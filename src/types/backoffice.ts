@@ -91,10 +91,26 @@ export interface ProductResource {
   id: string
   name: string
   description?: string
-  price: number
+  amount: number
   stock: number
+  stockHistory?: ProductStockHistoryResource[]
   created_at: string
   updated_at: string
+}
+
+export interface ProductStockHistoryResource {
+  id: string | number
+  type?: string
+  movement_type?: string
+  quantity?: number
+  previousStock?: number
+  previous_stock?: number
+  currentStock?: number
+  current_stock?: number
+  note?: string
+  description?: string
+  createdAt?: string
+  created_at?: string
 }
 
 export interface ProductPayload {

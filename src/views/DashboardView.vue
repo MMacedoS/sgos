@@ -10,13 +10,12 @@ import UsersSection from '@/components/users/sections/UsersSection.vue'
 import CustomersSection from '@/components/customers/sections/CustomersSection.vue'
 import ProductsSection from '@/components/products/sections/ProductsSection.vue'
 import ServicesSection from '@/components/services/sections/ServicesSection.vue'
-import StocksSection from '@/components/stocks/sections/StocksSection.vue'
 import SalesSection from '@/components/sales/sections/SalesSection.vue'
 import OrdersSection from '@/components/orders/sections/OrdersSection.vue'
 import CashSection from '@/components/cash/sections/CashSection.vue'
 import ModulePlaceholderSection from '@/components/modules/sections/ModulePlaceholderSection.vue'
 import type { NavItem, SectionId } from '@/types/dashboard'
-import { LucideBlocks, LucideBringToFront, LucideDollarSign, LucideLayoutDashboard, LucidePackage, LucidePackageOpen, LucideShoppingBag, LucideUserRound, LucideUserStar } from '@lucide/vue'
+import { LucideBlocks, LucideBringToFront, LucideDollarSign, LucideLayoutDashboard, LucidePackage, LucideShoppingBag, LucideUserRound, LucideUserStar } from '@lucide/vue'
 
 const router = useRouter()
 const { user, logout } = useAuth()
@@ -29,7 +28,6 @@ const navItems: NavItem[] = [
   { id: 'customers', label: 'Clientes', icon: LucideUserStar },
   { id: 'services', label: 'Serviços', icon: LucideBlocks },
   { id: 'products', label: 'Produtos', icon: LucidePackage },
-  { id: 'stocks', label: 'Estoques', icon: LucidePackageOpen },
   { id: 'sales', label: 'Vendas', icon: LucideShoppingBag },
   { id: 'orders', label: 'Ordens de Serviço', icon: LucideBringToFront },
   { id: 'cash', label: 'Caixa', icon: LucideDollarSign },
@@ -47,7 +45,6 @@ const dashboardModules = computed(() => [
   { title: 'Clientes', endpoint: '/api/v1/clientes', status: 'ativo' },
   { title: 'Serviços', endpoint: '/api/v1/servicos', status: 'ativo' },
   { title: 'Produtos', endpoint: '/api/v1/produtos', status: 'ativo' },
-  { title: 'Estoques', endpoint: '/api/v1/estoques', status: 'ativo' },
   { title: 'Vendas', endpoint: '/api/v1/vendas', status: 'ativo' },
   { title: 'Ordens Serviço', endpoint: '/api/v1/ordens-servico', status: 'ativo' },
   { title: 'Caixa', endpoint: '/api/v1/caixas', status: 'ativo' },
@@ -65,7 +62,6 @@ const sectionSubtitle = computed(() => {
     customers: 'Fluxo de cadastro e consulta de clientes',
     services: 'Gerencie serviços cadastrados na API',
     products: 'Gerencie catálogo e produtos',
-    stocks: 'Controle de estoques',
     sales: 'Visão de vendas e pagamentos',
     orders: 'Ordens de serviço e andamento',
     cash: 'Caixas e movimentos financeiros',
@@ -81,7 +77,6 @@ const activeApiRoute = computed(() => {
     customers: 'POST /api/v1/clientes',
     services: 'GET|POST /api/v1/servicos',
     products: 'GET|POST /api/v1/produtos',
-    stocks: 'GET|POST /api/v1/estoques',
     sales: 'GET|POST /api/v1/vendas',
     orders: 'GET|POST /api/v1/ordens-servico',
     cash: 'GET|POST /api/v1/caixas',
@@ -117,7 +112,6 @@ const handleLogout = async (): Promise<void> => {
       <CustomersSection v-else-if="activeSection === 'customers'" />
       <ServicesSection v-else-if="activeSection === 'services'" />
       <ProductsSection v-else-if="activeSection === 'products'" />
-      <StocksSection v-else-if="activeSection === 'stocks'" />
       <SalesSection v-else-if="activeSection === 'sales'" />
       <OrdersSection v-else-if="activeSection === 'orders'" />
       <CashSection v-else-if="activeSection === 'cash'" />

@@ -4,7 +4,6 @@ export type SectionId =
   | 'customers'
   | 'services'
   | 'products'
-  | 'stocks'
   | 'sales'
   | 'orders'
   | 'cash'

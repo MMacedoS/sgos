@@ -1,4 +1,4 @@
-import { API_BASE_URL, TOKEN_KEY, TOKEN_TYPE } from '@/config/constants'
+import { API_BASE_URL, AUTH_UNAUTHORIZED_EVENT, TOKEN_KEY, TOKEN_TYPE, USER_KEY } from '@/config/constants'
 import type { ApiResponse } from '@/types/auth'
 
 interface RequestConfig {
@@ -67,6 +67,12 @@ export class HttpClient {
 
   private async handleResponse<T>(response: Response): Promise<T> {
     const data = await response.json()
+
+    if (response.status === 401) {
+      HttpClient.clearToken()
+      localStorage.removeItem(USER_KEY)
+      window.dispatchEvent(new CustomEvent(AUTH_UNAUTHORIZED_EVENT))
+    }
 
     throw_if(!response.ok, new HttpError(data.message, response.status))
 

@@ -1,3 +1,5 @@
 export const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost/api'
 export const TOKEN_KEY = 'auth_token'
+export const USER_KEY = 'auth_user'
 export const TOKEN_TYPE = 'Bearer'
+export const AUTH_UNAUTHORIZED_EVENT = 'auth:unauthorized'

@@ -2,6 +2,7 @@ import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import type { User, AuthError } from '@/types/auth'
 import { authService, HttpClient } from '@/services'
+import { USER_KEY } from '@/config/constants'
 
 export const useAuthStore = defineStore('auth', () => {
   const user = ref<User | null>(null)
@@ -9,7 +10,7 @@ export const useAuthStore = defineStore('auth', () => {
   const isLoading = ref(false)
   const error = ref<AuthError | null>(null)
 
-  const isAuthenticated = computed(() => !!token.value && !!user.value)
+  const isAuthenticated = computed(() => !!token.value)
 
   const login = async (email: string, password: string): Promise<void> => {
     isLoading.value = true
@@ -68,18 +69,35 @@ export const useAuthStore = defineStore('auth', () => {
     user.value = newUser
     token.value = newToken
     HttpClient.setToken(newToken)
+    localStorage.setItem(USER_KEY, JSON.stringify(newUser))
   }
 
   const clearAuth = (): void => {
     user.value = null
     token.value = null
     HttpClient.clearToken()
+    localStorage.removeItem(USER_KEY)
   }
 
   const initializeFromStorage = (): void => {
     const storedToken = HttpClient.getToken()
-    if (storedToken) {
-      token.value = storedToken
+    const storedUser = localStorage.getItem(USER_KEY)
+
+    if (!storedToken) {
+      clearAuth()
+      return
+    }
+
+    token.value = storedToken
+
+    if (!storedUser) {
+      return
+    }
+
+    try {
+      user.value = JSON.parse(storedUser) as User
+    } catch {
+      localStorage.removeItem(USER_KEY)
     }
   }
 

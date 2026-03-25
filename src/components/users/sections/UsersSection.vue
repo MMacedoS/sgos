@@ -1,28 +1,32 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
+import { useCepLookup, usePersonFormFields } from '@/composables'
 import { usersService } from '@/services'
-import type { EmployeeResource, PersonPayload } from '@/types/backoffice'
+import { formatCEP, formatPhoneBR, isValidCPF, isValidPhoneBR } from '@/utils'
+import type { EmployeeResource, PersonPayload, PersonResource } from '@/types/backoffice'
 
 const emptyPersonPayload = (): PersonPayload => ({
-  nome_razao: '',
+  name: '',
   cpf_cnpj: '',
-  data_nascimento: '',
-  genero: 'O',
-  telefone: '',
+  birth_date: '',
+  gender: 'O',
+  phone: '',
   email: '',
-  logradouro: '',
-  numero: '',
-  complemento: '',
-  bairro: '',
-  cidade: '',
-  estado: '',
-  cep: '',
+  street: '',
+  number: '',
+  complement: '',
+  neighborhood: '',
+  city: '',
+  state: '',
+  zip_code: '',
 })
 
 const isLoadingUsers = ref(false)
 const submitUserLoading = ref(false)
 const userMessage = ref('')
 const showUserModal = ref(false)
+const showFilters = ref(false)
+const editingUserId = ref<string | number | null>(null)
 const users = ref<EmployeeResource[]>([])
 
 const userFilters = ref({
@@ -32,6 +36,10 @@ const userFilters = ref({
 })
 
 const userForm = ref<PersonPayload>(emptyPersonPayload())
+const { cepMessage, handleCepInput, isLoadingCep, loadAddressByCep, resetCepState } = useCepLookup(userForm)
+const { formatDocument, formatDocumentDisplay, formatPhoneDisplay, handleDocumentInput, handlePhoneInput, onlyDigits } = usePersonFormFields(userForm)
+
+const isEditingUser = computed(() => editingUserId.value !== null)
 
 const filteredUsers = computed(() => {
   const search = userFilters.value.search.trim().toLowerCase()
@@ -53,20 +61,55 @@ const filteredUsers = computed(() => {
   })
 })
 
+const mapPersonToForm = (person: PersonResource): PersonPayload => {
+  return {
+    name: person.name ?? '',
+    cpf_cnpj: formatDocument(person.document ?? ''),
+    birth_date: person.birth_date ?? '',
+    gender: (person.gender?.toUpperCase() as 'M' | 'F' | 'O') ?? 'O',
+    phone: person.phone ? formatPhoneBR(person.phone) : '',
+    email: person.email ?? '',
+    street: person.street ?? '',
+    number: person.number ?? '',
+    complement: person.complement ?? '',
+    neighborhood: person.neighborhood ?? '',
+    city: person.city ?? '',
+    state: person.state ?? '',
+    zip_code: person.zip_code ? formatCEP(person.zip_code) : '',
+  }
+}
+
+const resetUserModalState = (): void => {
+  editingUserId.value = null
+  userMessage.value = ''
+  resetCepState()
+  userForm.value = emptyPersonPayload()
+}
+
 const sanitizePayload = (payload: PersonPayload): PersonPayload => {
   const normalized = { ...payload }
 
+  normalized.cpf_cnpj = onlyDigits(normalized.cpf_cnpj)
+
+  if (normalized.zip_code) {
+    normalized.zip_code = onlyDigits(normalized.zip_code)
+  }
+
+  if (normalized.phone) {
+    normalized.phone = onlyDigits(normalized.phone)
+  }
+
   const keys: Array<keyof PersonPayload> = [
-    'data_nascimento',
-    'telefone',
+    'birth_date',
+    'phone',
     'email',
-    'logradouro',
-    'numero',
-    'complemento',
-    'bairro',
-    'cidade',
-    'estado',
-    'cep',
+    'street',
+    'number',
+    'complement',
+    'neighborhood',
+    'city',
+    'state',
+    'zip_code',
   ]
 
   keys.forEach((key) => {
@@ -75,15 +118,15 @@ const sanitizePayload = (payload: PersonPayload): PersonPayload => {
     }
   })
 
-  if (normalized.genero) {
-    normalized.genero = normalized.genero.toUpperCase() as 'M' | 'F' | 'O'
+  if (normalized.gender) {
+    normalized.gender = normalized.gender.toUpperCase() as 'M' | 'F' | 'O'
   }
 
   return normalized
 }
 
 const isRequiredInvalid = (payload: PersonPayload): boolean => {
-  return !payload.nome_razao.trim() || !payload.cpf_cnpj.trim()
+  return !payload.name.trim() || !payload.cpf_cnpj.trim()
 }
 
 const loadUsers = async (): Promise<void> => {
@@ -103,27 +146,78 @@ const submitUser = async (): Promise<void> => {
     return
   }
 
+  const documentDigits = onlyDigits(userForm.value.cpf_cnpj)
+  if (documentDigits.length === 11 && !isValidCPF(documentDigits)) {
+    userMessage.value = 'CPF inválido.'
+    return
+  }
+
+  if (userForm.value.phone && !isValidPhoneBR(userForm.value.phone)) {
+    userMessage.value = 'Telefone inválido.'
+    return
+  }
+
   submitUserLoading.value = true
   try {
-    await usersService.create(sanitizePayload(userForm.value))
-    userMessage.value = 'Usuário cadastrado com sucesso.'
-    userForm.value = emptyPersonPayload()
+    const payload = sanitizePayload(userForm.value)
+
+    if (editingUserId.value !== null) {
+      await usersService.update(editingUserId.value, payload)
+      userMessage.value = 'Usuário atualizado com sucesso.'
+    } 
+    if (editingUserId.value === null) {
+      await usersService.create(payload)
+      userMessage.value = 'Usuário cadastrado com sucesso.'
+    }
+
     await loadUsers()
     showUserModal.value = false
+    resetUserModalState()
   } catch (error) {
-    userMessage.value = error instanceof Error ? error.message : 'Erro ao cadastrar usuário.'
+    userMessage.value = error instanceof Error
+      ? error.message
+      : editingUserId.value !== null
+        ? 'Erro ao atualizar usuário.'
+        : 'Erro ao cadastrar usuário.'
   } finally {
     submitUserLoading.value = false
   }
 }
 
 const openUserModal = (): void => {
+  resetUserModalState()
+  showUserModal.value = true
+}
+
+const openEditUserModal = (user: EmployeeResource): void => {
+  editingUserId.value = user.id
   userMessage.value = ''
+  resetCepState()
+  userForm.value = mapPersonToForm(user.person)
   showUserModal.value = true
 }
 
 const closeUserModal = (): void => {
   showUserModal.value = false
+  resetUserModalState()
+}
+
+const toggleFilters = (): void => {
+  showFilters.value = !showFilters.value
+}
+
+const deleteUser = async (userId: string | number): Promise<void> => {
+  if (!confirm('Tem certeza que deseja excluir este usuário?')) {
+    return
+  }
+
+  try {
+    await usersService.remove(userId)
+    resetUserModalState()
+    await loadUsers()
+  } catch (error) {
+    alert(error instanceof Error ? error.message : 'Erro ao excluir usuário.')
+  }
 }
 
 onMounted(async () => {
@@ -139,25 +233,44 @@ onMounted(async () => {
           <h3>Usuários Cadastrados</h3>
           <span>{{ filteredUsers.length }} resultados • {{ users.length }} total</span>
         </div>
-        <button type="button" class="btn-primary add-customer-btn" @click="openUserModal">+ Novo Usuário</button>
+        <div class="flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            class="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
+            @click="toggleFilters"
+          >
+            <span>Filtros</span>
+            <span class="text-xs text-slate-400">{{ showFilters ? 'Ocultar' : 'Mostrar' }}</span>
+          </button>
+          <button type="button" class="rounded-lg bg-indigo-600 px-4 py-3 text-sm font-bold text-white transition hover:bg-indigo-500" @click="openUserModal">+ Novo Usuário</button>
+        </div>
       </header>
 
-      <div class="filter-bar">
-        <input v-model="userFilters.search" type="text" placeholder="Pesquisar nome, documento ou e-mail" />
-        <input v-model="userFilters.city" type="text" placeholder="Filtrar por cidade" />
-        <input v-model="userFilters.state" type="text" maxlength="2" placeholder="UF" />
-      </div>
+      <transition name="filters-collapse">
+        <div v-if="showFilters" class="filter-panel">
+          <div class="filter-bar">
+            <input v-model="userFilters.search" type="text" placeholder="Pesquisar nome, documento ou e-mail" />
+            <input v-model="userFilters.city" type="text" placeholder="Filtrar por cidade" />
+            <input v-model="userFilters.state" type="text" maxlength="2" placeholder="UF" />
+          </div>
+        </div>
+      </transition>
 
       <p v-if="isLoadingUsers" class="muted">Carregando usuários...</p>
 
       <div v-if="!isLoadingUsers" class="customer-cards">
-        <article v-for="item in filteredUsers" :key="item.id" class="customer-card">
+        <article
+          v-for="item in filteredUsers"
+          :key="item.id"
+          class="customer-card cursor-pointer transition hover:-translate-y-0.5 hover:border-indigo-200 hover:shadow-md"
+          @click="openEditUserModal(item)"
+        >
           <div class="customer-card-head">
             <strong>{{ item.person.name }}</strong>
-            <span class="doc-badge">{{ item.person.document }}</span>
+            <span class="doc-badge">{{ formatDocumentDisplay(item.person.document) }}</span>
           </div>
           <p>{{ item.person.email || 'Sem e-mail cadastrado' }}</p>
-          <p>{{ item.person.phone || 'Sem telefone cadastrado' }}</p>
+          <p>{{ formatPhoneDisplay(item.person.phone) }}</p>
           <div class="customer-meta">
             <span>{{ item.person.city || 'Cidade não informada' }}</span>
             <span>{{ item.person.state || '--' }}</span>
@@ -170,38 +283,236 @@ onMounted(async () => {
       </p>
     </article>
 
-    <div v-if="showUserModal" class="modal-backdrop" @click.self="closeUserModal">
-      <article class="modal-card">
-        <header class="modal-header">
-          <h3>Novo Usuário</h3>
-          <button type="button" class="close-btn" @click="closeUserModal">×</button>
+    <div
+      v-if="showUserModal"
+      class="fixed inset-0 z-[60] flex items-center justify-center bg-slate-900/55 p-4 md:p-6"
+      @click.self="closeUserModal"
+    >
+      <article class="flex max-h-[92vh] w-full max-w-5xl flex-col overflow-hidden rounded-3xl bg-white shadow-2xl">
+        <header class="flex shrink-0 items-start justify-between gap-4 border-b border-slate-200 px-5 py-4 md:px-7 md:py-5">
+          <div>
+            <h3 class="text-lg font-bold text-slate-900">{{ isEditingUser ? 'Editar Usuário' : 'Novo Usuário' }}</h3>
+            <p class="mt-1 text-sm text-slate-500">
+              {{ isEditingUser ? 'Atualize os dados do usuário selecionado' : 'Preencha os dados para cadastrar o usuário' }}
+            </p>
+          </div>
+          <button
+            type="button"
+            class="grid h-10 w-10 shrink-0 place-items-center rounded-full border border-slate-200 text-lg text-slate-500 transition hover:bg-slate-50"
+            @click="closeUserModal"
+          >
+            &times;
+          </button>
         </header>
 
-        <form class="form-grid" @submit.prevent="submitUser">
-          <input v-model="userForm.nome_razao" type="text" placeholder="Nome/Razão *" />
-          <input v-model="userForm.cpf_cnpj" type="text" placeholder="CPF/CNPJ *" />
-          <input v-model="userForm.email" type="email" placeholder="E-mail" />
-          <input v-model="userForm.telefone" type="text" placeholder="Telefone" />
-          <input v-model="userForm.data_nascimento" type="date" placeholder="Data nascimento" />
-          <select v-model="userForm.genero">
-            <option value="O">Gênero</option>
-            <option value="M">Masculino</option>
-            <option value="F">Feminino</option>
-            <option value="O">Outro</option>
-          </select>
-          <input v-model="userForm.logradouro" type="text" placeholder="Logradouro" />
-          <input v-model="userForm.numero" type="text" placeholder="Número" />
-          <input v-model="userForm.bairro" type="text" placeholder="Bairro" />
-          <input v-model="userForm.cidade" type="text" placeholder="Cidade" />
-          <input v-model="userForm.estado" type="text" placeholder="Estado" maxlength="2" />
-          <input v-model="userForm.cep" type="text" placeholder="CEP" />
-          <textarea v-model="userForm.complemento" placeholder="Complemento" />
-          <button :disabled="submitUserLoading" type="submit" class="btn-primary">
-            {{ submitUserLoading ? 'Salvando...' : 'Salvar Usuário' }}
-          </button>
-        </form>
+        <div class="flex-1 overflow-y-auto bg-slate-50/70 px-5 py-5 md:px-7 md:py-6">
+          <form id="user-form" class="space-y-5" @submit.prevent="submitUser">
+            <section class="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm md:p-5">
+              <div class="mb-4 flex items-center gap-3">
+                <span class="text-xs font-semibold uppercase tracking-[0.18em] text-indigo-600">Dados Pessoais</span>
+                <div class="h-px flex-1 bg-slate-200"></div>
+              </div>
 
-        <p v-if="userMessage" class="feedback">{{ userMessage }}</p>
+              <div class="grid grid-cols-1 gap-4 md:grid-cols-2">
+                <div class="flex flex-col gap-1.5">
+                  <label class="text-xs font-medium text-slate-600">
+                    Nome / Razão Social <span class="text-red-400">*</span>
+                  </label>
+                  <input
+                    v-model="userForm.name"
+                    type="text"
+                    placeholder="Ex.: João Silva"
+                    class="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700 outline-none transition placeholder:text-slate-400 focus:border-indigo-500 focus:bg-white focus:ring-4 focus:ring-indigo-100"
+                  />
+                </div>
+
+                <div class="flex flex-col gap-1.5">
+                  <label class="text-xs font-medium text-slate-600">
+                    CPF / CNPJ <span class="text-red-400">*</span>
+                  </label>
+                  <input
+                    v-model="userForm.cpf_cnpj"
+                    type="text"
+                    placeholder="000.000.000-00"
+                    class="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700 outline-none transition placeholder:text-slate-400 focus:border-indigo-500 focus:bg-white focus:ring-4 focus:ring-indigo-100"
+                    @input="handleDocumentInput"
+                  />
+                </div>
+
+                <div class="flex flex-col gap-1.5">
+                  <label class="text-xs font-medium text-slate-600">E-mail</label>
+                  <input
+                    v-model="userForm.email"
+                    type="email"
+                    placeholder="exemplo@email.com"
+                    class="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700 outline-none transition placeholder:text-slate-400 focus:border-indigo-500 focus:bg-white focus:ring-4 focus:ring-indigo-100"
+                  />
+                </div>
+
+                <div class="flex flex-col gap-1.5">
+                  <label class="text-xs font-medium text-slate-600">Telefone</label>
+                  <input
+                    v-model="userForm.phone"
+                    type="text"
+                    placeholder="(00) 90000-0000"
+                    class="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700 outline-none transition placeholder:text-slate-400 focus:border-indigo-500 focus:bg-white focus:ring-4 focus:ring-indigo-100"
+                    @input="handlePhoneInput"
+                  />
+                </div>
+
+                <div class="flex flex-col gap-1.5">
+                  <label class="text-xs font-medium text-slate-600">Data de Nascimento</label>
+                  <input
+                    v-model="userForm.birth_date"
+                    type="date"
+                    class="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700 outline-none transition focus:border-indigo-500 focus:bg-white focus:ring-4 focus:ring-indigo-100"
+                  />
+                </div>
+
+                <div class="flex flex-col gap-1.5">
+                  <label class="text-xs font-medium text-slate-600">Gênero</label>
+                  <select
+                    v-model="userForm.gender"
+                    class="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700 outline-none transition focus:border-indigo-500 focus:bg-white focus:ring-4 focus:ring-indigo-100"
+                  >
+                    <option value="O">Outro / Prefiro não informar</option>
+                    <option value="M">Masculino</option>
+                    <option value="F">Feminino</option>
+                  </select>
+                </div>
+              </div>
+            </section>
+
+            <section class="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm md:p-5">
+              <div class="mb-4 flex items-center gap-3">
+                <span class="text-xs font-semibold uppercase tracking-[0.18em] text-indigo-600">Endereço</span>
+                <div class="h-px flex-1 bg-slate-200"></div>
+              </div>
+
+              <div class="grid grid-cols-1 gap-4 md:grid-cols-3">
+                <div class="flex flex-col gap-1.5">
+                  <label class="text-xs font-medium text-slate-600">CEP</label>
+                  <input
+                    v-model="userForm.zip_code"
+                    type="text"
+                    placeholder="00000-000"
+                    class="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700 outline-none transition placeholder:text-slate-400 focus:border-indigo-500 focus:bg-white focus:ring-4 focus:ring-indigo-100"
+                    @input="handleCepInput"
+                    @blur="loadAddressByCep"
+                  />
+                  <span
+                    class="text-xs"
+                    :class="cepMessage === 'Endereco preenchido automaticamente.' ? 'text-emerald-600' : 'text-slate-500'"
+                  >
+                    {{ isLoadingCep ? 'Buscando CEP...' : cepMessage || 'Ao informar o CEP, o endereco e preenchido automaticamente.' }}
+                  </span>
+                </div>
+
+                <div class="flex flex-col gap-1.5 md:col-span-2">
+                  <label class="text-xs font-medium text-slate-600">Logradouro</label>
+                  <input
+                    v-model="userForm.street"
+                    type="text"
+                    placeholder="Rua, Av., Travessa..."
+                    class="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700 outline-none transition placeholder:text-slate-400 focus:border-indigo-500 focus:bg-white focus:ring-4 focus:ring-indigo-100"
+                  />
+                </div>
+
+                <div class="flex flex-col gap-1.5">
+                  <label class="text-xs font-medium text-slate-600">Número</label>
+                  <input
+                    v-model="userForm.number"
+                    type="text"
+                    placeholder="123"
+                    class="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700 outline-none transition placeholder:text-slate-400 focus:border-indigo-500 focus:bg-white focus:ring-4 focus:ring-indigo-100"
+                  />
+                </div>
+
+                <div class="flex flex-col gap-1.5">
+                  <label class="text-xs font-medium text-slate-600">Bairro</label>
+                  <input
+                    v-model="userForm.neighborhood"
+                    type="text"
+                    placeholder="Bairro"
+                    class="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700 outline-none transition placeholder:text-slate-400 focus:border-indigo-500 focus:bg-white focus:ring-4 focus:ring-indigo-100"
+                  />
+                </div>
+
+                <div class="flex flex-col gap-1.5">
+                  <label class="text-xs font-medium text-slate-600">Cidade</label>
+                  <input
+                    v-model="userForm.city"
+                    type="text"
+                    placeholder="Cidade"
+                    class="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700 outline-none transition placeholder:text-slate-400 focus:border-indigo-500 focus:bg-white focus:ring-4 focus:ring-indigo-100"
+                  />
+                </div>
+
+                <div class="flex flex-col gap-1.5">
+                  <label class="text-xs font-medium text-slate-600">Estado (UF)</label>
+                  <input
+                    v-model="userForm.state"
+                    type="text"
+                    placeholder="SP"
+                    maxlength="2"
+                    class="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm uppercase text-slate-700 outline-none transition placeholder:text-slate-400 focus:border-indigo-500 focus:bg-white focus:ring-4 focus:ring-indigo-100"
+                  />
+                </div>
+
+                <div class="flex flex-col gap-1.5 md:col-span-2">
+                  <label class="text-xs font-medium text-slate-600">Complemento</label>
+                  <input
+                    v-model="userForm.complement"
+                    type="text"
+                    placeholder="Apto, bloco, sala..."
+                    class="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700 outline-none transition placeholder:text-slate-400 focus:border-indigo-500 focus:bg-white focus:ring-4 focus:ring-indigo-100"
+                  />
+                </div>
+              </div>
+            </section>
+          </form>
+        </div>
+
+        <footer class="flex shrink-0 flex-col gap-3 border-t border-slate-200 bg-white px-5 py-4 md:flex-row md:items-center md:justify-between md:px-7">
+          <p
+            v-if="userMessage"
+            :class="['text-sm font-semibold', userMessage.includes('sucesso') ? 'text-emerald-600' : 'text-red-500']"
+          >
+            {{ userMessage }}
+          </p>
+          <span v-else class="hidden md:block"></span>
+
+          <div class="flex w-full flex-col gap-2 sm:w-auto sm:flex-row">
+            <button
+              type="button"
+              class="rounded-xl border border-slate-200 px-5 py-3 text-sm font-semibold text-slate-600 transition hover:bg-slate-50"
+              @click="closeUserModal"
+            >
+              Cancelar
+            </button>
+            <button
+              form="user-form"
+              type="submit"
+              :disabled="submitUserLoading"
+              class="flex min-w-[160px] items-center justify-center gap-2 rounded-xl bg-indigo-600 px-5 py-3 text-sm font-bold text-white transition hover:bg-indigo-500 disabled:cursor-not-allowed disabled:opacity-70"
+            >
+              <span
+                v-if="submitUserLoading"
+                class="inline-block h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent"
+              ></span>
+              {{ submitUserLoading ? 'Salvando...' : isEditingUser ? 'Salvar Alterações' : 'Salvar Usuário' }}
+            </button>
+            <button
+                v-if="isEditingUser"
+                type="button"
+                class="flex min-w-160px items-center justify-center gap-2 rounded-xl border border-red-500 bg-white px-5 py-3 text-sm font-bold text-red-500 transition hover:bg-red-50"
+                @click="deleteUser(editingUserId!)"
+            >
+              Excluir
+            </button>
+
+          </div>
+        </footer>
       </article>
     </div>
   </section>
@@ -245,15 +556,18 @@ onMounted(async () => {
   gap: 0.8rem;
 }
 
-.add-customer-btn {
-  width: fit-content;
-}
-
 .filter-bar {
   display: grid;
   grid-template-columns: 1.6fr 1fr 90px;
   gap: 0.65rem;
+}
+
+.filter-panel {
   margin-bottom: 0.9rem;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  background: #f8fafc;
+  padding: 0.85rem;
 }
 
 .filter-bar input {
@@ -308,87 +622,20 @@ onMounted(async () => {
   margin-top: 0.35rem;
 }
 
-.modal-backdrop {
-  position: fixed;
-  inset: 0;
-  background: rgba(15, 23, 42, 0.55);
-  display: grid;
-  place-items: center;
-  z-index: 60;
-  padding: 1rem;
-}
-
-.modal-card {
-  width: min(920px, 100%);
-  max-height: 88dvh;
-  overflow: auto;
-  background: #fff;
-  border-radius: 14px;
-  padding: 1rem;
-  box-shadow: 0 20px 50px rgba(2, 6, 23, 0.25);
-}
-
-.modal-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 0.8rem;
-}
-
-.close-btn {
-  width: 34px;
-  height: 34px;
-  border-radius: 999px;
-  border: 1px solid #d1d5db;
-  background: #fff;
-  font-size: 1.2rem;
-  cursor: pointer;
-}
-
-.form-grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 0.65rem;
-}
-
-.form-grid input,
-.form-grid select,
-.form-grid textarea,
-.btn-primary {
-  border: 1px solid #d1d5db;
-  border-radius: 8px;
-  padding: 0.62rem 0.72rem;
-  font: inherit;
-}
-
-.form-grid textarea {
-  min-height: 80px;
-  grid-column: 1 / -1;
-}
-
-.btn-primary {
-  grid-column: 1 / -1;
-  border: 0;
-  background: #4f46e5;
-  color: #fff;
-  font-weight: 700;
-  cursor: pointer;
-}
-
-.btn-primary:disabled {
-  opacity: 0.7;
-  cursor: not-allowed;
-}
-
-.feedback {
-  margin: 0.7rem 0 0;
-  color: #4f46e5;
-  font-weight: 600;
-}
-
 .muted {
   color: #6b7280;
   font-size: 0.84rem;
+}
+
+.filters-collapse-enter-active,
+.filters-collapse-leave-active {
+  transition: opacity 0.2s ease, transform 0.2s ease;
+}
+
+.filters-collapse-enter-from,
+.filters-collapse-leave-to {
+  opacity: 0;
+  transform: translateY(-6px);
 }
 
 @media (max-width: 1024px) {
@@ -400,10 +647,6 @@ onMounted(async () => {
 @media (max-width: 768px) {
   .content-section {
     padding-bottom: 5.8rem;
-  }
-
-  .form-grid {
-    grid-template-columns: 1fr;
   }
 
   .filter-bar,

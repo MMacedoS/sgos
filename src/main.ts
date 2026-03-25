@@ -1,6 +1,7 @@
 import { createApp } from 'vue'
 import { createPinia } from 'pinia'
 import App from './App.vue'
+import './style.css'
 import router from './router'
 import { useAuthStore } from '@/stores'
 import { AUTH_UNAUTHORIZED_EVENT } from '@/config/constants'

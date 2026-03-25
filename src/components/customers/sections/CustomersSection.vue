@@ -1,29 +1,34 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
+import { useCepLookup, usePersonFormFields } from '@/composables'
 import { customersService } from '@/services'
-import type { CustomerResource, PersonPayload } from '@/types/backoffice'
+import { formatCEP, formatPhoneBR, isValidCPF, isValidPhoneBR } from '@/utils'
+import type { CustomerResource, EmployeeResource, PersonPayload, PersonResource } from '@/types/backoffice'
 
 const emptyPersonPayload = (): PersonPayload => ({
-  nome_razao: '',
+  name: '',
   cpf_cnpj: '',
-  data_nascimento: '',
-  genero: 'O',
-  telefone: '',
+  birth_date: '',
+  gender: 'O',
+  phone: '',
   email: '',
-  logradouro: '',
-  numero: '',
-  complemento: '',
-  bairro: '',
-  cidade: '',
-  estado: '',
-  cep: '',
+  street: '',
+  number: '',
+  complement: '',
+  neighborhood: '',
+  city: '',
+  state: '',
+  zip_code: '',
 })
 
 const isLoadingCustomers = ref(false)
 const submitCustomerLoading = ref(false)
 const customerMessage = ref('')
 const showCustomerModal = ref(false)
-const customers = ref<CustomerResource[]>([])
+const showFilters = ref(false)
+const editingCustomerId = ref<string | number | null>(null)
+const deletingCustomerId = ref<string | number | null>(null)
+const customers = ref<EmployeeResource[]>([])
 
 const customerFilters = ref({
   search: '',
@@ -32,6 +37,10 @@ const customerFilters = ref({
 })
 
 const customerForm = ref<PersonPayload>(emptyPersonPayload())
+const { cepMessage, handleCepInput, isLoadingCep, loadAddressByCep, resetCepState } = useCepLookup(customerForm)
+const { formatDocument, formatDocumentDisplay, formatPhoneDisplay, handleDocumentInput, handlePhoneInput, onlyDigits } = usePersonFormFields(customerForm)
+
+const isEditingCustomer = computed(() => editingCustomerId.value !== null)
 
 const filteredCustomers = computed(() => {
   const search = customerFilters.value.search.trim().toLowerCase()
@@ -53,20 +62,55 @@ const filteredCustomers = computed(() => {
   })
 })
 
+const mapPersonToForm = (person: PersonResource): PersonPayload => {
+  return {
+    name: person.name ?? '',
+    cpf_cnpj: formatDocument(person.document ?? ''),
+    birth_date: person.birth_date ?? '',
+    gender: (person.gender?.toUpperCase() as 'M' | 'F' | 'O') ?? 'O',
+    phone: person.phone ? formatPhoneBR(person.phone) : '',
+    email: person.email ?? '',
+    street: person.street ?? '',
+    number: person.number ?? '',
+    complement: person.complement ?? '',
+    neighborhood: person.neighborhood ?? '',
+    city: person.city ?? '',
+    state: person.state ?? '',
+    zip_code: person.zip_code ? formatCEP(person.zip_code) : '',
+  }
+}
+
+const resetCustomerModalState = (): void => {
+  editingCustomerId.value = null
+  customerMessage.value = ''
+  resetCepState()
+  customerForm.value = emptyPersonPayload()
+}
+
 const sanitizePayload = (payload: PersonPayload): PersonPayload => {
   const normalized = { ...payload }
 
+  normalized.cpf_cnpj = onlyDigits(normalized.cpf_cnpj)
+
+  if (normalized.zip_code) {
+    normalized.zip_code = onlyDigits(normalized.zip_code)
+  }
+
+  if (normalized.phone) {
+    normalized.phone = onlyDigits(normalized.phone)
+  }
+
   const keys: Array<keyof PersonPayload> = [
-    'data_nascimento',
-    'telefone',
+    'birth_date',
+    'phone',
     'email',
-    'logradouro',
-    'numero',
-    'complemento',
-    'bairro',
-    'cidade',
-    'estado',
-    'cep',
+    'street',
+    'number',
+    'complement',
+    'neighborhood',
+    'city',
+    'state',
+    'zip_code',
   ]
 
   keys.forEach((key) => {
@@ -75,15 +119,15 @@ const sanitizePayload = (payload: PersonPayload): PersonPayload => {
     }
   })
 
-  if (normalized.genero) {
-    normalized.genero = normalized.genero.toUpperCase() as 'M' | 'F' | 'O'
+  if (normalized.gender) {
+    normalized.gender = normalized.gender.toUpperCase() as 'M' | 'F' | 'O'
   }
 
   return normalized
 }
 
 const isRequiredInvalid = (payload: PersonPayload): boolean => {
-  return !payload.nome_razao.trim() || !payload.cpf_cnpj.trim()
+  return !payload.name.trim() || !payload.cpf_cnpj.trim()
 }
 
 const loadCustomers = async (): Promise<void> => {
@@ -103,27 +147,79 @@ const submitCustomer = async (): Promise<void> => {
     return
   }
 
+  const documentDigits = onlyDigits(customerForm.value.cpf_cnpj)
+  if (documentDigits.length === 11 && !isValidCPF(documentDigits)) {
+    customerMessage.value = 'CPF inválido.'
+    return
+  }
+
+  if (customerForm.value.phone && !isValidPhoneBR(customerForm.value.phone)) {
+    customerMessage.value = 'Telefone inválido.'
+    return
+  }
+
   submitCustomerLoading.value = true
   try {
-    await customersService.create(sanitizePayload(customerForm.value))
-    customerMessage.value = 'Cliente cadastrado com sucesso.'
-    customerForm.value = emptyPersonPayload()
+    const payload = sanitizePayload(customerForm.value)
+
+    if (editingCustomerId.value !== null) {
+      await customersService.update(editingCustomerId.value, payload)
+      customerMessage.value = 'Cliente atualizado com sucesso.'
+    } 
+    if (editingCustomerId.value === null) {
+      await customersService.create(payload)
+      customerMessage.value = 'Cliente cadastrado com sucesso.'
+    }
+
     await loadCustomers()
     showCustomerModal.value = false
+    resetCustomerModalState()
   } catch (error) {
-    customerMessage.value = error instanceof Error ? error.message : 'Erro ao cadastrar cliente.'
+    customerMessage.value = error instanceof Error
+      ? error.message
+      : editingCustomerId.value !== null
+        ? 'Erro ao atualizar cliente.'
+        : 'Erro ao cadastrar cliente.'
   } finally {
     submitCustomerLoading.value = false
   }
 }
 
 const openCustomerModal = (): void => {
+  resetCustomerModalState()
+  showCustomerModal.value = true
+}
+
+const openEditCustomerModal = (customer: CustomerResource): void => {
+  editingCustomerId.value = customer.id
   customerMessage.value = ''
+  resetCepState()
+  customerForm.value = mapPersonToForm(customer.person)
   showCustomerModal.value = true
 }
 
 const closeCustomerModal = (): void => {
   showCustomerModal.value = false
+  resetCustomerModalState()
+}
+
+const toggleFilters = (): void => {
+  showFilters.value = !showFilters.value
+}
+
+const deleteCustomer = async (customerId: string | number): Promise<void> => {
+  if (!confirm('Tem certeza que deseja excluir este cliente?')) {
+    return
+  }
+
+  try {
+    await customersService.remove(customerId)
+    showCustomerModal.value = false;
+    resetCustomerModalState()
+    await loadCustomers()
+  } catch (error) {
+    alert(error instanceof Error ? error.message : 'Erro ao excluir cliente.')
+  }
 }
 
 onMounted(async () => {
@@ -139,25 +235,44 @@ onMounted(async () => {
           <h3>Clientes Cadastrados</h3>
           <span>{{ filteredCustomers.length }} resultados • {{ customers.length }} total</span>
         </div>
-        <button type="button" class="btn-primary add-customer-btn" @click="openCustomerModal">+ Novo Cliente</button>
+        <div class="flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            class="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
+            @click="toggleFilters"
+          >
+            <span>Filtros</span>
+            <span class="text-xs text-slate-400">{{ showFilters ? 'Ocultar' : 'Mostrar' }}</span>
+          </button>
+          <button type="button" class="rounded-lg bg-indigo-600 px-4 py-3 text-sm font-bold text-white transition hover:bg-indigo-500" @click="openCustomerModal">+ Novo Cliente</button>
+        </div>
       </header>
 
-      <div class="filter-bar">
-        <input v-model="customerFilters.search" type="text" placeholder="Pesquisar nome, documento ou e-mail" />
-        <input v-model="customerFilters.city" type="text" placeholder="Filtrar por cidade" />
-        <input v-model="customerFilters.state" type="text" maxlength="2" placeholder="UF" />
-      </div>
+      <transition name="filters-collapse">
+        <div v-if="showFilters" class="filter-panel">
+          <div class="filter-bar">
+            <input v-model="customerFilters.search" type="text" placeholder="Pesquisar nome, documento ou e-mail" />
+            <input v-model="customerFilters.city" type="text" placeholder="Filtrar por cidade" />
+            <input v-model="customerFilters.state" type="text" maxlength="2" placeholder="UF" />
+          </div>
+        </div>
+      </transition>
 
       <p v-if="isLoadingCustomers" class="muted">Carregando clientes...</p>
 
       <div v-if="!isLoadingCustomers" class="customer-cards">
-        <article v-for="item in filteredCustomers" :key="item.id" class="customer-card">
+        <article
+          v-for="item in filteredCustomers"
+          :key="item.id"
+          class="customer-card cursor-pointer transition hover:-translate-y-0.5 hover:border-indigo-200 hover:shadow-md"
+          @click="openEditCustomerModal(item)"
+        >
           <div class="customer-card-head">
             <strong>{{ item.person.name }}</strong>
-            <span class="doc-badge">{{ item.person.document }}</span>
+            <span class="doc-badge">{{ formatDocumentDisplay(item.person.document) }}</span>
           </div>
           <p>{{ item.person.email || 'Sem e-mail cadastrado' }}</p>
-          <p>{{ item.person.phone || 'Sem telefone cadastrado' }}</p>
+          <p>{{ formatPhoneDisplay(item.person.phone) }}</p>
           <div class="customer-meta">
             <span>{{ item.person.city || 'Cidade não informada' }}</span>
             <span>{{ item.person.state || '--' }}</span>
@@ -170,38 +285,236 @@ onMounted(async () => {
       </p>
     </article>
 
-    <div v-if="showCustomerModal" class="modal-backdrop" @click.self="closeCustomerModal">
-      <article class="modal-card">
-        <header class="modal-header">
-          <h3>Novo Cliente</h3>
-          <button type="button" class="close-btn" @click="closeCustomerModal">×</button>
+    <div
+      v-if="showCustomerModal"
+      class="fixed inset-0 z-[60] flex items-center justify-center bg-slate-900/55 p-4 md:p-6"
+      @click.self="closeCustomerModal"
+    >
+      <article class="flex max-h-[92vh] w-full max-w-5xl flex-col overflow-hidden rounded-3xl bg-white shadow-2xl">
+        <header class="flex shrink-0 items-start justify-between gap-4 border-b border-slate-200 px-5 py-4 md:px-7 md:py-5">
+          <div>
+            <h3 class="text-lg font-bold text-slate-900">{{ isEditingCustomer ? 'Editar Cliente' : 'Novo Cliente' }}</h3>
+            <p class="mt-1 text-sm text-slate-500">
+              {{ isEditingCustomer ? 'Atualize os dados do cliente selecionado' : 'Preencha os dados para cadastrar o cliente' }}
+            </p>
+          </div>
+          <button
+            type="button"
+            class="grid h-10 w-10 shrink-0 place-items-center rounded-full border border-slate-200 text-lg text-slate-500 transition hover:bg-slate-50"
+            @click="closeCustomerModal"
+          >
+            &times;
+          </button>
         </header>
 
-        <form class="form-grid" @submit.prevent="submitCustomer">
-          <input v-model="customerForm.nome_razao" type="text" placeholder="Nome/Razão *" />
-          <input v-model="customerForm.cpf_cnpj" type="text" placeholder="CPF/CNPJ *" />
-          <input v-model="customerForm.email" type="email" placeholder="E-mail" />
-          <input v-model="customerForm.telefone" type="text" placeholder="Telefone" />
-          <input v-model="customerForm.data_nascimento" type="date" placeholder="Data nascimento" />
-          <select v-model="customerForm.genero">
-            <option value="O">Gênero</option>
-            <option value="M">Masculino</option>
-            <option value="F">Feminino</option>
-            <option value="O">Outro</option>
-          </select>
-          <input v-model="customerForm.logradouro" type="text" placeholder="Logradouro" />
-          <input v-model="customerForm.numero" type="text" placeholder="Número" />
-          <input v-model="customerForm.bairro" type="text" placeholder="Bairro" />
-          <input v-model="customerForm.cidade" type="text" placeholder="Cidade" />
-          <input v-model="customerForm.estado" type="text" placeholder="Estado" maxlength="2" />
-          <input v-model="customerForm.cep" type="text" placeholder="CEP" />
-          <textarea v-model="customerForm.complemento" placeholder="Complemento" />
-          <button :disabled="submitCustomerLoading" type="submit" class="btn-primary">
-            {{ submitCustomerLoading ? 'Salvando...' : 'Salvar Cliente' }}
-          </button>
-        </form>
+        <div class="flex-1 overflow-y-auto bg-slate-50/70 px-5 py-5 md:px-7 md:py-6">
+          <form id="customer-form" class="space-y-5" @submit.prevent="submitCustomer">
+            <section class="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm md:p-5">
+              <div class="mb-4 flex items-center gap-3">
+                <span class="text-xs font-semibold uppercase tracking-[0.18em] text-indigo-600">Dados Pessoais</span>
+                <div class="h-px flex-1 bg-slate-200"></div>
+              </div>
 
-        <p v-if="customerMessage" class="feedback">{{ customerMessage }}</p>
+              <div class="grid grid-cols-1 gap-4 md:grid-cols-2">
+                <div class="flex flex-col gap-1.5">
+                  <label class="text-xs font-medium text-slate-600">
+                    Nome / Razão Social <span class="text-red-400">*</span>
+                  </label>
+                  <input
+                    v-model="customerForm.name"
+                    type="text"
+                    placeholder="Ex.: João Silva"
+                    class="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700 outline-none transition placeholder:text-slate-400 focus:border-indigo-500 focus:bg-white focus:ring-4 focus:ring-indigo-100"
+                  />
+                </div>
+
+                <div class="flex flex-col gap-1.5">
+                  <label class="text-xs font-medium text-slate-600">
+                    CPF / CNPJ <span class="text-red-400">*</span>
+                  </label>
+                  <input
+                    v-model="customerForm.cpf_cnpj"
+                    type="text"
+                    placeholder="000.000.000-00"
+                    class="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700 outline-none transition placeholder:text-slate-400 focus:border-indigo-500 focus:bg-white focus:ring-4 focus:ring-indigo-100"
+                    @input="handleDocumentInput"
+                  />
+                </div>
+
+                <div class="flex flex-col gap-1.5">
+                  <label class="text-xs font-medium text-slate-600">E-mail</label>
+                  <input
+                    v-model="customerForm.email"
+                    type="email"
+                    placeholder="exemplo@email.com"
+                    class="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700 outline-none transition placeholder:text-slate-400 focus:border-indigo-500 focus:bg-white focus:ring-4 focus:ring-indigo-100"
+                  />
+                </div>
+
+                <div class="flex flex-col gap-1.5">
+                  <label class="text-xs font-medium text-slate-600">Telefone</label>
+                  <input
+                    v-model="customerForm.phone"
+                    type="text"
+                    placeholder="(00) 90000-0000"
+                    class="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700 outline-none transition placeholder:text-slate-400 focus:border-indigo-500 focus:bg-white focus:ring-4 focus:ring-indigo-100"
+                    @input="handlePhoneInput"
+                  />
+                </div>
+
+                <div class="flex flex-col gap-1.5">
+                  <label class="text-xs font-medium text-slate-600">Data de Nascimento</label>
+                  <input
+                    v-model="customerForm.birth_date"
+                    type="date"
+                    class="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700 outline-none transition focus:border-indigo-500 focus:bg-white focus:ring-4 focus:ring-indigo-100"
+                  />
+                </div>
+
+                <div class="flex flex-col gap-1.5">
+                  <label class="text-xs font-medium text-slate-600">Gênero</label>
+                  <select
+                    v-model="customerForm.gender"
+                    class="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700 outline-none transition focus:border-indigo-500 focus:bg-white focus:ring-4 focus:ring-indigo-100"
+                  >
+                    <option value="O">Outro / Prefiro não informar</option>
+                    <option value="M">Masculino</option>
+                    <option value="F">Feminino</option>
+                  </select>
+                </div>
+              </div>
+            </section>
+
+            <section class="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm md:p-5">
+              <div class="mb-4 flex items-center gap-3">
+                <span class="text-xs font-semibold uppercase tracking-[0.18em] text-indigo-600">Endereço</span>
+                <div class="h-px flex-1 bg-slate-200"></div>
+              </div>
+
+              <div class="grid grid-cols-1 gap-4 md:grid-cols-3">
+                <div class="flex flex-col gap-1.5">
+                  <label class="text-xs font-medium text-slate-600">CEP</label>
+                  <input
+                    v-model="customerForm.zip_code"
+                    type="text"
+                    placeholder="00000-000"
+                    class="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700 outline-none transition placeholder:text-slate-400 focus:border-indigo-500 focus:bg-white focus:ring-4 focus:ring-indigo-100"
+                    @input="handleCepInput"
+                    @blur="loadAddressByCep"
+                  />
+                  <span
+                    class="text-xs"
+                    :class="cepMessage === 'Endereco preenchido automaticamente.' ? 'text-emerald-600' : 'text-slate-500'"
+                  >
+                    {{ isLoadingCep ? 'Buscando CEP...' : cepMessage || 'Ao informar o CEP, o endereco e preenchido automaticamente.' }}
+                  </span>
+                </div>
+
+                <div class="flex flex-col gap-1.5 md:col-span-2">
+                  <label class="text-xs font-medium text-slate-600">Logradouro</label>
+                  <input
+                    v-model="customerForm.street"
+                    type="text"
+                    placeholder="Rua, Av., Travessa..."
+                    class="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700 outline-none transition placeholder:text-slate-400 focus:border-indigo-500 focus:bg-white focus:ring-4 focus:ring-indigo-100"
+                  />
+                </div>
+
+                <div class="flex flex-col gap-1.5">
+                  <label class="text-xs font-medium text-slate-600">Número</label>
+                  <input
+                    v-model="customerForm.number"
+                    type="text"
+                    placeholder="123"
+                    class="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700 outline-none transition placeholder:text-slate-400 focus:border-indigo-500 focus:bg-white focus:ring-4 focus:ring-indigo-100"
+                  />
+                </div>
+
+                <div class="flex flex-col gap-1.5">
+                  <label class="text-xs font-medium text-slate-600">Bairro</label>
+                  <input
+                    v-model="customerForm.neighborhood"
+                    type="text"
+                    placeholder="Bairro"
+                    class="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700 outline-none transition placeholder:text-slate-400 focus:border-indigo-500 focus:bg-white focus:ring-4 focus:ring-indigo-100"
+                  />
+                </div>
+
+                <div class="flex flex-col gap-1.5">
+                  <label class="text-xs font-medium text-slate-600">Cidade</label>
+                  <input
+                    v-model="customerForm.city"
+                    type="text"
+                    placeholder="Cidade"
+                    class="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700 outline-none transition placeholder:text-slate-400 focus:border-indigo-500 focus:bg-white focus:ring-4 focus:ring-indigo-100"
+                  />
+                </div>
+
+                <div class="flex flex-col gap-1.5">
+                  <label class="text-xs font-medium text-slate-600">Estado (UF)</label>
+                  <input
+                    v-model="customerForm.state"
+                    type="text"
+                    placeholder="SP"
+                    maxlength="2"
+                    class="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm uppercase text-slate-700 outline-none transition placeholder:text-slate-400 focus:border-indigo-500 focus:bg-white focus:ring-4 focus:ring-indigo-100"
+                  />
+                </div>
+
+                <div class="flex flex-col gap-1.5 md:col-span-2">
+                  <label class="text-xs font-medium text-slate-600">Complemento</label>
+                  <input
+                    v-model="customerForm.complement"
+                    type="text"
+                    placeholder="Apto, bloco, sala..."
+                    class="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700 outline-none transition placeholder:text-slate-400 focus:border-indigo-500 focus:bg-white focus:ring-4 focus:ring-indigo-100"
+                  />
+                </div>
+              </div>
+            </section>
+          </form>
+        </div>
+
+        <footer class="flex shrink-0 flex-col gap-3 border-t border-slate-200 bg-white px-5 py-4 md:flex-row md:items-center md:justify-between md:px-7">
+          <p
+            v-if="customerMessage"
+            :class="['text-sm font-semibold', customerMessage.includes('sucesso') ? 'text-emerald-600' : 'text-red-500']"
+          >
+            {{ customerMessage }}
+          </p>
+          <span v-else class="hidden md:block"></span>
+
+          <div class="flex w-full flex-col gap-2 sm:w-auto sm:flex-row">
+            <button
+              type="button"
+              class="rounded-xl border border-slate-200 px-5 py-3 text-sm font-semibold text-slate-600 transition hover:bg-slate-50"
+              @click="closeCustomerModal"
+            >
+              Cancelar
+            </button>
+            <button
+              form="customer-form"
+              type="submit"
+              :disabled="submitCustomerLoading"
+              class="flex min-w-160px items-center justify-center gap-2 rounded-xl bg-indigo-600 px-5 py-3 text-sm font-bold text-white transition hover:bg-indigo-500 disabled:cursor-not-allowed disabled:opacity-70"
+            >
+              <span
+                v-if="submitCustomerLoading"
+                class="inline-block h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent"
+              ></span>
+              {{ submitCustomerLoading ? 'Salvando...' : isEditingCustomer ? 'Salvar Alterações' : 'Salvar Cliente' }}
+            </button>
+            <button
+                v-if="isEditingCustomer"
+                type="button"
+                class="flex min-w-160px items-center justify-center gap-2 rounded-xl border border-red-500 bg-white px-5 py-3 text-sm font-bold text-red-500 transition hover:bg-red-50"
+                @click="deleteCustomer(editingCustomerId!)"
+            >
+              Excluir
+            </button>
+
+          </div>
+        </footer>
       </article>
     </div>
   </section>
@@ -245,15 +558,18 @@ onMounted(async () => {
   gap: 0.8rem;
 }
 
-.add-customer-btn {
-  width: fit-content;
-}
-
 .filter-bar {
   display: grid;
   grid-template-columns: 1.6fr 1fr 90px;
   gap: 0.65rem;
+}
+
+.filter-panel {
   margin-bottom: 0.9rem;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  background: #f8fafc;
+  padding: 0.85rem;
 }
 
 .filter-bar input {
@@ -308,87 +624,20 @@ onMounted(async () => {
   margin-top: 0.35rem;
 }
 
-.modal-backdrop {
-  position: fixed;
-  inset: 0;
-  background: rgba(15, 23, 42, 0.55);
-  display: grid;
-  place-items: center;
-  z-index: 60;
-  padding: 1rem;
-}
-
-.modal-card {
-  width: min(920px, 100%);
-  max-height: 88dvh;
-  overflow: auto;
-  background: #fff;
-  border-radius: 14px;
-  padding: 1rem;
-  box-shadow: 0 20px 50px rgba(2, 6, 23, 0.25);
-}
-
-.modal-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 0.8rem;
-}
-
-.close-btn {
-  width: 34px;
-  height: 34px;
-  border-radius: 999px;
-  border: 1px solid #d1d5db;
-  background: #fff;
-  font-size: 1.2rem;
-  cursor: pointer;
-}
-
-.form-grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 0.65rem;
-}
-
-.form-grid input,
-.form-grid select,
-.form-grid textarea,
-.btn-primary {
-  border: 1px solid #d1d5db;
-  border-radius: 8px;
-  padding: 0.62rem 0.72rem;
-  font: inherit;
-}
-
-.form-grid textarea {
-  min-height: 80px;
-  grid-column: 1 / -1;
-}
-
-.btn-primary {
-  grid-column: 1 / -1;
-  border: 0;
-  background: #4f46e5;
-  color: #fff;
-  font-weight: 700;
-  cursor: pointer;
-}
-
-.btn-primary:disabled {
-  opacity: 0.7;
-  cursor: not-allowed;
-}
-
-.feedback {
-  margin: 0.7rem 0 0;
-  color: #4f46e5;
-  font-weight: 600;
-}
-
 .muted {
   color: #6b7280;
   font-size: 0.84rem;
+}
+
+.filters-collapse-enter-active,
+.filters-collapse-leave-active {
+  transition: opacity 0.2s ease, transform 0.2s ease;
+}
+
+.filters-collapse-enter-from,
+.filters-collapse-leave-to {
+  opacity: 0;
+  transform: translateY(-6px);
 }
 
 @media (max-width: 1024px) {
@@ -400,10 +649,6 @@ onMounted(async () => {
 @media (max-width: 768px) {
   .content-section {
     padding-bottom: 5.8rem;
-  }
-
-  .form-grid {
-    grid-template-columns: 1fr;
   }
 
   .filter-bar,

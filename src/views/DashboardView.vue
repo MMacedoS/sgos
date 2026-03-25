@@ -16,6 +16,7 @@ import OrdersSection from '@/components/orders/sections/OrdersSection.vue'
 import CashSection from '@/components/cash/sections/CashSection.vue'
 import ModulePlaceholderSection from '@/components/modules/sections/ModulePlaceholderSection.vue'
 import type { NavItem, SectionId } from '@/types/dashboard'
+import { LucideBlocks, LucideBringToFront, LucideDollarSign, LucideLayoutDashboard, LucidePackage, LucidePackageOpen, LucideShoppingBag, LucideUserRound, LucideUserStar } from '@lucide/vue'
 
 const router = useRouter()
 const { user, logout } = useAuth()
@@ -23,22 +24,22 @@ const { user, logout } = useAuth()
 const activeSection = ref<SectionId>('overview')
 
 const navItems: NavItem[] = [
-  { id: 'overview', label: 'Visão Geral', icon: '◉' },
-  { id: 'users', label: 'Usuários', icon: '◎' },
-  { id: 'customers', label: 'Clientes', icon: '◍' },
-  { id: 'services', label: 'Serviços', icon: '◌' },
-  { id: 'products', label: 'Produtos', icon: '◐' },
-  { id: 'stocks', label: 'Estoques', icon: '◑' },
-  { id: 'sales', label: 'Vendas', icon: '◒' },
-  { id: 'orders', label: 'Ordens de Serviço', icon: '◓' },
-  { id: 'cash', label: 'Caixa', icon: '◔' },
+  { id: 'overview', label: 'Visão Geral', icon: LucideLayoutDashboard },
+  { id: 'users', label: 'Usuários', icon: LucideUserRound },
+  { id: 'customers', label: 'Clientes', icon: LucideUserStar },
+  { id: 'services', label: 'Serviços', icon: LucideBlocks },
+  { id: 'products', label: 'Produtos', icon: LucidePackage },
+  { id: 'stocks', label: 'Estoques', icon: LucidePackageOpen },
+  { id: 'sales', label: 'Vendas', icon: LucideShoppingBag },
+  { id: 'orders', label: 'Ordens de Serviço', icon: LucideBringToFront },
+  { id: 'cash', label: 'Caixa', icon: LucideDollarSign },
 ]
 
 const mobileNavItems: NavItem[] = [
-  { id: 'overview', label: 'Início', icon: '◉' },
-  { id: 'users', label: 'Usuários', icon: '◎' },
-  { id: 'customers', label: 'Clientes', icon: '◍' },
-  { id: 'sales', label: 'Vendas', icon: '◒' },
+  { id: 'overview', label: 'Início', icon: LucideLayoutDashboard },
+  { id: 'customers', label: 'Clientes', icon: LucideUserStar },
+  { id: 'sales', label: 'Vendas', icon: LucideShoppingBag },
+  { id: 'services', label: 'Serviços', icon: LucideBlocks }
 ]
 
 const dashboardModules = computed(() => [
@@ -107,7 +108,6 @@ const handleLogout = async (): Promise<void> => {
       <DashboardTopbar
         :title="sectionTitle"
         :subtitle="sectionSubtitle"
-        :endpoint="activeApiRoute"
         :user-name="user?.name"
         :user-role="user?.role"
       />

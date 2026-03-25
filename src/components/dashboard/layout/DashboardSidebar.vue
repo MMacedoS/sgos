@@ -24,11 +24,11 @@ const emit = defineEmits<{
         v-for="item in items"
         :key="item.id"
         type="button"
-        class="nav-item"
+        class="nav-item space-x-2"
         :class="{ active: activeSection === item.id }"
         @click="emit('change-section', item.id)"
       >
-        <span class="icon">{{ item.icon }}</span>
+        <span class="icon"><component :is="item.icon" /></span>
         <span>{{ item.label }}</span>
       </button>
     </nav>

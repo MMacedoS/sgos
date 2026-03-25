@@ -2,7 +2,6 @@
 defineProps<{
   title: string
   subtitle: string
-  endpoint: string
   userName?: string
   userRole?: string
 }>()
@@ -13,7 +12,6 @@ defineProps<{
     <div>
       <h2>{{ title }}</h2>
       <p>{{ subtitle }}</p>
-      <small class="endpoint">{{ endpoint }}</small>
     </div>
 
     <div class="topbar-user">

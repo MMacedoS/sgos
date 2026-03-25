@@ -1,17 +1,17 @@
 export interface PersonPayload {
-  nome_razao: string
+  name: string
   cpf_cnpj: string
-  data_nascimento?: string
-  genero?: 'M' | 'F' | 'O'
-  telefone?: string
+  birth_date?: string
+  gender?: 'M' | 'F' | 'O'
+  phone?: string
   email?: string
-  logradouro?: string
-  numero?: string
-  complemento?: string
-  bairro?: string
-  cidade?: string
-  estado?: string
-  cep?: string
+  street?: string
+  number?: string
+  complement?: string
+  neighborhood?: string
+  city?: string
+  state?: string
+  zip_code?: string
 }
 
 export interface PersonResource {
@@ -22,7 +22,7 @@ export interface PersonResource {
   gender?: string
   phone?: string
   email?: string
-  address?: string
+  street?: string
   number?: string
   complement?: string
   neighborhood?: string
@@ -49,7 +49,62 @@ export interface EmployeeResource {
   updated_at: string
 }
 
+export interface CustomerResource {
+  id: string
+  uuid: number
+  person_id: number
+  person: PersonResource
+  created_at: string
+  updated_at: string
+}
+
 export interface ApiResourceResponse<T> {
+  success: boolean
+  data: T
+  message: string
+}
+
+export interface ServiceResource {
+  id: string
+  name: string
+  description?: string
+  price: number
+  duration_minutes?: number
+  created_at: string
+  updated_at: string
+}
+
+export interface ServiceResponse<T> {
+  success: boolean
+  data: T
+  message: string
+}
+
+export interface ServicePayload {
+  name: string
+  description?: string
+  amount: number
+  duration_minutes?: number
+}
+
+export interface ProductResource {
+  id: string
+  name: string
+  description?: string
+  price: number
+  stock: number
+  created_at: string
+  updated_at: string
+}
+
+export interface ProductPayload {
+  name: string
+  description?: string
+  amount: number
+  stock: number
+}
+
+export interface ProductResponse<T> {
   success: boolean
   data: T
   message: string

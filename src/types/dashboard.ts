@@ -12,5 +12,5 @@ export type SectionId =
 export type NavItem = {
   id: SectionId
   label: string
-  icon: string
+  icon: any
 }

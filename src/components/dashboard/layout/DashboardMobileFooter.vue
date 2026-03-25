@@ -21,7 +21,7 @@ const emit = defineEmits<{
       :class="{ active: activeSection === item.id }"
       @click="emit('change-section', item.id)"
     >
-      <span>{{ item.icon }}</span>
+      <span><component :is="item.icon" /></span>
       <small>{{ item.label }}</small>
     </button>
   </footer>

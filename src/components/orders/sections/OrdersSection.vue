@@ -299,6 +299,7 @@ const productSelectionSearch = ref('')
 const serviceSelectionSearch = ref('')
 const orderForm = ref<OrderFormState>(emptyOrderForm())
 const selectedPaymentIds = ref<string[]>([])
+const expandedPaymentIds = ref<string[]>([])
 const removalConfirmation = ref<RemovalConfirmationState>({
   visible: false,
   target: null,
@@ -306,6 +307,8 @@ const removalConfirmation = ref<RemovalConfirmationState>({
 
 const isEditingOrder = computed(() => editingOrderId.value !== null)
 const hasSelectedPersistedPayments = computed(() => selectedPaymentIds.value.length > 0)
+const persistedPaymentsCount = computed(() => orderForm.value.payments.filter((payment) => payment.isPersisted).length)
+const newPaymentsCount = computed(() => orderForm.value.payments.filter((payment) => !payment.isPersisted).length)
 
 const selectedServiceIds = computed(() => new Set(orderForm.value.services.map((item) => item.id)))
 const selectedProductIds = computed(() => new Set(orderForm.value.products.map((item) => item.id)))
@@ -377,6 +380,94 @@ const paymentsTotal = computed(() => {
 
 const paymentBalance = computed(() => {
   return Math.max(0, calculatedTotal.value - paymentsTotal.value)
+})
+
+const paymentStatusSummary = computed(() => {
+  const summary = {
+    pendente: 0,
+    pago: 0,
+    cancelado: 0,
+  }
+
+  for (const payment of orderForm.value.payments) {
+    const status = String(payment.status ?? 'pendente').trim().toLowerCase()
+
+    if (status === 'pago') {
+      summary.pago += 1
+      continue
+    }
+
+    if (status === 'cancelado') {
+      summary.cancelado += 1
+      continue
+    }
+
+    summary.pendente += 1
+  }
+
+  return summary
+})
+
+const getPaymentStatusLabel = (status?: string): string => {
+  const normalized = String(status ?? 'pendente').trim().toLowerCase()
+
+  if (normalized === 'pago') {
+    return 'Pago'
+  }
+
+  if (normalized === 'cancelado') {
+    return 'Cancelado'
+  }
+
+  return 'Pendente'
+}
+
+const getPaymentStatusTone = (status?: string): string => {
+  const normalized = String(status ?? 'pendente').trim().toLowerCase()
+
+  if (normalized === 'pago') {
+    return 'bg-emerald-50 text-emerald-700 border-emerald-200'
+  }
+
+  if (normalized === 'cancelado') {
+    return 'bg-rose-50 text-rose-700 border-rose-200'
+  }
+
+  return 'bg-amber-50 text-amber-700 border-amber-200'
+}
+
+const sortedPayments = computed(() => {
+  const getStatusPriority = (status?: string): number => {
+    const normalized = String(status ?? 'pendente').trim().toLowerCase()
+
+    if (normalized === 'pendente') {
+      return 0
+    }
+
+    if (normalized === 'pago') {
+      return 1
+    }
+
+    if (normalized === 'cancelado') {
+      return 2
+    }
+
+    return 3
+  }
+
+  return [...orderForm.value.payments].sort((left, right) => {
+    if (left.isPersisted !== right.isPersisted) {
+      return left.isPersisted ? 1 : -1
+    }
+
+    const statusPriorityDiff = getStatusPriority(left.status) - getStatusPriority(right.status)
+
+    if (statusPriorityDiff !== 0) {
+      return statusPriorityDiff
+    }
+
+    return Number(right.amount ?? 0) - Number(left.amount ?? 0)
+  })
 })
 
 const getStatusOption = (status: OrderServiceStatus): OrderStatusOption => {
@@ -470,6 +561,7 @@ const loadDependencies = async (): Promise<void> => {
 const resetOrderModalState = (): void => {
   editingOrderId.value = null
   selectedPaymentIds.value = []
+  expandedPaymentIds.value = []
   orderMessage.value = ''
   serviceSelectionSearch.value = ''
   productSelectionSearch.value = ''
@@ -573,7 +665,22 @@ const updateItemPrice = (type: OrderItemType, itemId: string, value: number): vo
 }
 
 const addPayment = (): void => {
-  orderForm.value.payments = [...orderForm.value.payments, createPaymentItem()]
+  const payment = createPaymentItem()
+  orderForm.value.payments = [...orderForm.value.payments, payment]
+  expandedPaymentIds.value = [...new Set([...expandedPaymentIds.value, payment.id])]
+}
+
+const isPaymentExpanded = (paymentId: string): boolean => {
+  return expandedPaymentIds.value.includes(paymentId)
+}
+
+const togglePaymentExpanded = (paymentId: string): void => {
+  if (isPaymentExpanded(paymentId)) {
+    expandedPaymentIds.value = expandedPaymentIds.value.filter((id) => id !== paymentId)
+    return
+  }
+
+  expandedPaymentIds.value = [...expandedPaymentIds.value, paymentId]
 }
 
 const isPaidStatus = (status?: string | null): boolean => {
@@ -588,6 +695,11 @@ const isInstallmentLocked = (installment?: OrderPaymentInstallmentResource): boo
   return isPaidStatus(installment?.status) && Boolean(installment?.payment_date)
 }
 
+const getPaymentMethodLabel = (method: OrderPaymentMethod): string => {
+  const option = PAYMENT_METHOD_OPTIONS.find((entry) => entry.value === method)
+  return option?.label ?? method
+}
+
 const reloadEditingOrder = async (): Promise<void> => {
   if (editingOrderId.value === null) {
     return
@@ -596,6 +708,7 @@ const reloadEditingOrder = async (): Promise<void> => {
   const detailedOrder = await orderServicesService.show(editingOrderId.value)
   orderForm.value = mapOrderToForm(detailedOrder)
   selectedPaymentIds.value = []
+  expandedPaymentIds.value = []
 }
 
 const openRemovalConfirmation = (state: Omit<RemovalConfirmationState, 'visible'>): void => {
@@ -688,6 +801,7 @@ const removePayment = async (paymentId: string): Promise<void> => {
   if (!targetPayment.isPersisted) {
     orderForm.value.payments = orderForm.value.payments.filter((payment) => payment.id !== paymentId)
     selectedPaymentIds.value = selectedPaymentIds.value.filter((id) => id !== paymentId)
+    expandedPaymentIds.value = expandedPaymentIds.value.filter((id) => id !== paymentId)
     return
   }
 
@@ -941,6 +1055,36 @@ const sanitizePayments = (options?: {
     })
 }
 
+const createPaymentSignature = (payment: Pick<OrderPaymentPayload, 'payment_method' | 'value' | 'installments' | 'type' | 'note'>): string => {
+  const normalizedNote = String(payment.note ?? '').trim().toLowerCase()
+  return `${payment.payment_method}|${Number(payment.value).toFixed(2)}|${payment.installments}|${payment.type ?? 'avista'}|${normalizedNote}`
+}
+
+const hasDuplicatePaymentsToInsert = (): boolean => {
+  const persistedSignatures = new Set(
+    sanitizePayments({ onlyPersisted: true }).map((payment) => createPaymentSignature(payment)),
+  )
+
+  const newPayments = sanitizePayments({ onlyNew: true })
+  const seenNewSignatures = new Set<string>()
+
+  for (const payment of newPayments) {
+    const signature = createPaymentSignature(payment)
+
+    if (persistedSignatures.has(signature)) {
+      return true
+    }
+
+    if (seenNewSignatures.has(signature)) {
+      return true
+    }
+
+    seenNewSignatures.add(signature)
+  }
+
+  return false
+}
+
 const validatePaymentsForInsert = (): string | null => {
   if (editingOrderId.value === null) {
     return 'Salve a ordem antes de inserir recebimentos.'
@@ -956,6 +1100,10 @@ const validatePaymentsForInsert = (): string | null => {
   const payments = sanitizePayments({ onlyNew: true })
   if (!payments.length) {
     return 'Adicione pelo menos um pagamento com valor maior que zero.'
+  }
+
+  if (hasDuplicatePaymentsToInsert()) {
+    return 'Ja existe pagamento igual cadastrado ou duplicado na lista de novos pagamentos.'
   }
 
   if (paymentsTotal.value > calculatedTotal.value + 0.01) {
@@ -1688,33 +1836,22 @@ onMounted(async () => {
                   </div>
 
                   <div class="space-y-3">
-                    <div class="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                    <div class="grid grid-cols-1 gap-2 lg:grid-cols-3">
                       <button
                         type="button"
-                        class="w-full rounded-xl border border-dashed border-slate-300 px-4 py-2 text-sm font-semibold text-slate-600 transition hover:border-indigo-300 hover:text-indigo-600"
+                        class="w-full rounded-xl border border-dashed border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition hover:border-indigo-300 hover:text-indigo-600"
                         @click="addPayment"
                       >
-                        + Adicionar pagamento
+                        + Novo recebimento
                       </button>
 
                       <button
                         type="button"
                         :disabled="!isEditingOrder || submitPaymentsLoading"
-                        class="w-full rounded-xl bg-emerald-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-emerald-500 disabled:cursor-not-allowed disabled:opacity-60"
+                        class="w-full rounded-xl bg-indigo-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-indigo-500 disabled:cursor-not-allowed disabled:opacity-60"
                         @click="insertPayments"
                       >
-                        {{ submitPaymentsLoading ? 'Inserindo...' : 'Inserir recebimentos' }}
-                      </button>
-                    </div>
-
-                    <div class="grid grid-cols-1 gap-2 sm:grid-cols-2">
-                      <button
-                        type="button"
-                        :disabled="!isEditingOrder || submitPaymentsLoading || !hasSelectedPersistedPayments"
-                        class="w-full rounded-xl border border-emerald-300 bg-emerald-50 px-4 py-2 text-sm font-semibold text-emerald-700 transition hover:bg-emerald-100 disabled:cursor-not-allowed disabled:opacity-60"
-                        @click="settleSelectedPayments"
-                      >
-                        {{ submitPaymentsLoading ? 'Processando...' : 'Efetivar selecionados' }}
+                        {{ submitPaymentsLoading ? 'Processando...' : 'Salvar novos recebimentos' }}
                       </button>
 
                       <button
@@ -1723,20 +1860,87 @@ onMounted(async () => {
                         class="w-full rounded-xl border border-indigo-300 bg-indigo-50 px-4 py-2 text-sm font-semibold text-indigo-700 transition hover:bg-indigo-100 disabled:cursor-not-allowed disabled:opacity-60"
                         @click="updatePersistedPayments"
                       >
-                        {{ submitPaymentsLoading ? 'Processando...' : 'Atualizar pagamentos' }}
+                        {{ submitPaymentsLoading ? 'Processando...' : 'Atualizar cadastrados' }}
                       </button>
                     </div>
+
+                    <button
+                      type="button"
+                      :disabled="!isEditingOrder || submitPaymentsLoading || !hasSelectedPersistedPayments"
+                      class="w-full rounded-xl border border-emerald-300 bg-emerald-50 px-4 py-2 text-sm font-semibold text-emerald-700 transition hover:bg-emerald-100 disabled:cursor-not-allowed disabled:opacity-60"
+                      @click="settleSelectedPayments"
+                    >
+                      {{ submitPaymentsLoading ? 'Processando...' : `Efetivar selecionados (${selectedPaymentIds.length})` }}
+                    </button>
 
                     <p v-if="!isEditingOrder" class="text-xs text-slate-500">
                       Salve a ordem primeiro para inserir recebimentos.
                     </p>
 
-                    <div v-if="orderForm.payments.length" class="space-y-3">
+                    <div class="grid grid-cols-2 gap-2 md:grid-cols-4">
+                      <div class="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
+                        <span class="text-[11px] uppercase tracking-[0.06em] text-slate-500">Pagamentos</span>
+                        <p class="text-sm font-semibold text-slate-800">{{ orderForm.payments.length }}</p>
+                      </div>
+                      <div class="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
+                        <span class="text-[11px] uppercase tracking-[0.06em] text-slate-500">Persistidos</span>
+                        <p class="text-sm font-semibold text-slate-800">{{ persistedPaymentsCount }}</p>
+                      </div>
+                      <div class="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
+                        <span class="text-[11px] uppercase tracking-[0.06em] text-slate-500">Novos</span>
+                        <p class="text-sm font-semibold text-slate-800">{{ newPaymentsCount }}</p>
+                      </div>
+                      <div class="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
+                        <span class="text-[11px] uppercase tracking-[0.06em] text-slate-500">Selecionados</span>
+                        <p class="text-sm font-semibold text-slate-800">{{ selectedPaymentIds.length }}</p>
+                      </div>
+                    </div>
+
+                    <div class="grid grid-cols-1 gap-2 md:grid-cols-3">
+                      <div class="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2">
+                        <span class="text-[11px] uppercase tracking-[0.06em] text-amber-700">Pendentes</span>
+                        <p class="text-sm font-semibold text-amber-800">{{ paymentStatusSummary.pendente }}</p>
+                      </div>
+                      <div class="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2">
+                        <span class="text-[11px] uppercase tracking-[0.06em] text-emerald-700">Pagos</span>
+                        <p class="text-sm font-semibold text-emerald-800">{{ paymentStatusSummary.pago }}</p>
+                      </div>
+                      <div class="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2">
+                        <span class="text-[11px] uppercase tracking-[0.06em] text-rose-700">Cancelados</span>
+                        <p class="text-sm font-semibold text-rose-800">{{ paymentStatusSummary.cancelado }}</p>
+                      </div>
+                    </div>
+
+                    <div v-if="sortedPayments.length" class="space-y-3">
                       <article
-                        v-for="payment in orderForm.payments"
+                        v-for="payment in sortedPayments"
                         :key="payment.id"
-                        class="rounded-xl border border-slate-200 bg-slate-50 p-3"
+                        :class="[
+                          'rounded-xl border bg-slate-50 p-3 shadow-sm transition',
+                          getPaymentStatusTone(payment.status),
+                        ]"
                       >
+                        <button
+                          type="button"
+                          class="mb-2 flex w-full items-center justify-between rounded-lg border border-slate-200 bg-white px-3 py-2 text-left"
+                          @click="togglePaymentExpanded(payment.id)"
+                        >
+                          <div class="flex items-center gap-2">
+                            <strong class="text-sm text-slate-900">{{ getPaymentMethodLabel(payment.method) }}</strong>
+                            <span class="rounded-full bg-slate-100 px-2 py-0.5 text-xs font-semibold text-slate-600">
+                              {{ payment.isPersisted ? 'Cadastrado' : 'Novo' }}
+                            </span>
+                            <span class="rounded-full bg-indigo-50 px-2 py-0.5 text-xs font-semibold text-indigo-700">
+                              {{ getPaymentStatusLabel(payment.status) }}
+                            </span>
+                          </div>
+                          <div class="flex items-center gap-3">
+                            <strong class="text-sm text-slate-800">{{ formatCurrencyBRL(payment.amount) }}</strong>
+                            <span class="text-sm text-slate-500">{{ isPaymentExpanded(payment.id) ? '▾' : '▸' }}</span>
+                          </div>
+                        </button>
+
+                        <div v-if="isPaymentExpanded(payment.id)">
                         <label v-if="payment.isPersisted" class="mb-2 flex items-center gap-2 text-xs font-medium text-slate-600">
                           <input
                             type="checkbox"
@@ -1904,6 +2108,7 @@ onMounted(async () => {
                               </div>
                             </li>
                           </ul>
+                        </div>
                         </div>
                       </article>
                     </div>

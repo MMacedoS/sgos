@@ -1,15 +1,29 @@
 <script setup lang="ts">
+import type { SectionId } from '@/types/dashboard'
+
 defineProps<{
-  modules: Array<{ title: string; endpoint: string; status: string }>
+  modules: Array<{ id: SectionId; title: string; status: string }>
+}>()
+
+const emit = defineEmits<{
+  (event: 'open-section', section: SectionId): void
 }>()
 </script>
 
 <template>
   <section class="content-section">
     <div class="stats-grid">
-      <article v-for="module in modules" :key="module.title" class="stat-card">
+      <article
+        v-for="module in modules"
+        :key="module.title"
+        class="stat-card"
+        role="button"
+        tabindex="0"
+        @click="emit('open-section', module.id)"
+        @keydown.enter="emit('open-section', module.id)"
+        @keydown.space.prevent="emit('open-section', module.id)"
+      >
         <p class="stat-title">{{ module.title }}</p>
-        <strong>{{ module.endpoint }}</strong>
         <span class="tag">{{ module.status }}</span>
       </article>
     </div>
@@ -37,6 +51,18 @@ defineProps<{
   box-shadow: 0 8px 22px rgba(15, 23, 42, 0.06);
   display: grid;
   gap: 0.25rem;
+  cursor: pointer;
+  transition: transform 0.14s ease, box-shadow 0.14s ease;
+}
+
+.stat-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 12px 28px rgba(15, 23, 42, 0.1);
+}
+
+.stat-card:focus-visible {
+  outline: 2px solid #2563eb;
+  outline-offset: 2px;
 }
 
 .stat-title {

@@ -40,14 +40,14 @@ const mobileNavItems: NavItem[] = [
   { id: 'services', label: 'Serviços', icon: LucideBlocks }
 ]
 
-const dashboardModules = computed(() => [
-  { title: 'Usuários', endpoint: '/api/v1/funcionarios', status: 'ativo' },
-  { title: 'Clientes', endpoint: '/api/v1/clientes', status: 'ativo' },
-  { title: 'Serviços', endpoint: '/api/v1/servicos', status: 'ativo' },
-  { title: 'Produtos', endpoint: '/api/v1/produtos', status: 'ativo' },
-  { title: 'Vendas', endpoint: '/api/v1/vendas', status: 'ativo' },
-  { title: 'Ordens Serviço', endpoint: '/api/v1/ordens-servico', status: 'ativo' },
-  { title: 'Caixa', endpoint: '/api/v1/caixas', status: 'ativo' },
+const dashboardModules = computed((): Array<{ title: string; status: string; id: SectionId }> => [
+  { title: 'Usuários', status: 'ativo', id: 'users'},
+  { title: 'Clientes', status: 'ativo', id: 'customers' },
+  { title: 'Serviços', status: 'ativo', id: 'services' },
+  { title: 'Produtos', status: 'ativo', id: 'products' },
+  { title: 'Vendas', status: 'ativo', id: 'sales' },
+  { title: 'Ordens Serviço', status: 'ativo', id: 'orders' },
+  { title: 'Caixa', status: 'ativo', id: 'cash' },
 ])
 
 const sectionTitle = computed(() => {
@@ -57,7 +57,7 @@ const sectionTitle = computed(() => {
 
 const sectionSubtitle = computed(() => {
   const map: Record<SectionId, string> = {
-    overview: 'Resumo consolidado dos módulos da API',
+    overview: 'Resumo consolidado dos principais módulos e indicadores',
     users: 'Fluxo de cadastro de usuários (funcionários)',
     customers: 'Fluxo de cadastro e consulta de clientes',
     services: 'Gerencie serviços cadastrados na API',
@@ -107,7 +107,11 @@ const handleLogout = async (): Promise<void> => {
         :user-role="user?.role"
       />
 
-      <DashboardOverviewSection v-if="activeSection === 'overview'" :modules="dashboardModules" />
+      <DashboardOverviewSection
+        v-if="activeSection === 'overview'"
+        :modules="dashboardModules"
+        @open-section="changeSection"
+      />
       <UsersSection v-else-if="activeSection === 'users'" />
       <CustomersSection v-else-if="activeSection === 'customers'" />
       <ServicesSection v-else-if="activeSection === 'services'" />

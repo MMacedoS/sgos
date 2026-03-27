@@ -1792,7 +1792,7 @@ onMounted(async () => {
                 </article>
               </div>
 
-              <aside class="space-y-5">
+              <aside class="space-y-5" v-if="isEditingOrder">
                 <article class="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm md:p-5">
                   <div class="mb-4 flex items-center gap-3">
                     <span class="text-xs font-semibold uppercase tracking-[0.18em] text-indigo-600">Resumo Financeiro</span>
@@ -1836,43 +1836,6 @@ onMounted(async () => {
                   </div>
 
                   <div class="space-y-3">
-                    <div class="grid grid-cols-1 gap-2 lg:grid-cols-3">
-                      <button
-                        type="button"
-                        class="w-full rounded-xl border border-dashed border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition hover:border-indigo-300 hover:text-indigo-600"
-                        @click="addPayment"
-                      >
-                        + Novo recebimento
-                      </button>
-
-                      <button
-                        type="button"
-                        :disabled="!isEditingOrder || submitPaymentsLoading"
-                        class="w-full rounded-xl bg-indigo-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-indigo-500 disabled:cursor-not-allowed disabled:opacity-60"
-                        @click="insertPayments"
-                      >
-                        {{ submitPaymentsLoading ? 'Processando...' : 'Salvar novos recebimentos' }}
-                      </button>
-
-                      <button
-                        type="button"
-                        :disabled="!isEditingOrder || submitPaymentsLoading"
-                        class="w-full rounded-xl border border-indigo-300 bg-indigo-50 px-4 py-2 text-sm font-semibold text-indigo-700 transition hover:bg-indigo-100 disabled:cursor-not-allowed disabled:opacity-60"
-                        @click="updatePersistedPayments"
-                      >
-                        {{ submitPaymentsLoading ? 'Processando...' : 'Atualizar cadastrados' }}
-                      </button>
-                    </div>
-
-                    <button
-                      type="button"
-                      :disabled="!isEditingOrder || submitPaymentsLoading || !hasSelectedPersistedPayments"
-                      class="w-full rounded-xl border border-emerald-300 bg-emerald-50 px-4 py-2 text-sm font-semibold text-emerald-700 transition hover:bg-emerald-100 disabled:cursor-not-allowed disabled:opacity-60"
-                      @click="settleSelectedPayments"
-                    >
-                      {{ submitPaymentsLoading ? 'Processando...' : `Efetivar selecionados (${selectedPaymentIds.length})` }}
-                    </button>
-
                     <p v-if="!isEditingOrder" class="text-xs text-slate-500">
                       Salve a ordem primeiro para inserir recebimentos.
                     </p>
@@ -2114,6 +2077,42 @@ onMounted(async () => {
                     </div>
 
                     <p v-else class="muted">Nenhum pagamento adicionado.</p>
+                    <div class="grid grid-cols-1 gap-2 lg:grid-cols-3">
+                      <button
+                        type="button"
+                        class="w-full rounded-xl border border-dashed border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition hover:border-indigo-300 hover:text-indigo-600"
+                        @click="addPayment"
+                      >
+                        + Novo recebimento
+                      </button>
+
+                      <button
+                        type="button"
+                        :disabled="!isEditingOrder || submitPaymentsLoading"
+                        class="w-full rounded-xl bg-indigo-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-indigo-500 disabled:cursor-not-allowed disabled:opacity-60"
+                        @click="insertPayments"
+                      >
+                        {{ submitPaymentsLoading ? 'Processando...' : 'Salvar novos recebimentos' }}
+                      </button>
+
+                      <button
+                        type="button"
+                        :disabled="!isEditingOrder || submitPaymentsLoading"
+                        class="w-full rounded-xl border border-indigo-300 bg-indigo-50 px-4 py-2 text-sm font-semibold text-indigo-700 transition hover:bg-indigo-100 disabled:cursor-not-allowed disabled:opacity-60"
+                        @click="updatePersistedPayments"
+                      >
+                        {{ submitPaymentsLoading ? 'Processando...' : 'Atualizar cadastrados' }}
+                      </button>
+                    </div>
+
+                    <button
+                      type="button"
+                      :disabled="!isEditingOrder || submitPaymentsLoading || !hasSelectedPersistedPayments"
+                      class="w-full rounded-xl border border-emerald-300 bg-emerald-50 px-4 py-2 text-sm font-semibold text-emerald-700 transition hover:bg-emerald-100 disabled:cursor-not-allowed disabled:opacity-60"
+                      @click="settleSelectedPayments"
+                    >
+                      {{ submitPaymentsLoading ? 'Processando...' : `Efetivar selecionados (${selectedPaymentIds.length})` }}
+                    </button>
                   </div>
                 </article>
 
@@ -2691,7 +2690,7 @@ onMounted(async () => {
 
 .line-item-fields {
   display: grid;
-  grid-template-columns: minmax(100px, 120px) minmax(160px, 1fr) minmax(140px, 180px);
+  grid-template-columns: minmax(280px, 100px) minmax(180px, 1fr) minmax(100px, 120px);
   gap: 0.75rem;
   align-items: end;
 }

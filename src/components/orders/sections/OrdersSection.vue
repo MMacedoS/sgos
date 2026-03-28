@@ -4,9 +4,7 @@ import {
   Pagination,
   PaginationContent,
   PaginationEllipsis,
-  PaginationFirst,
   PaginationItem,
-  PaginationLast,
   PaginationNext,
   PaginationPrevious,
 } from '@/components/ui/pagination'
@@ -575,11 +573,11 @@ const orderDisplayEnd = computed(() => {
 const orderPaginationTokens = computed<OrderPaginationToken[]>(() => {
   const totalPages = orderTotalPages.value
 
-  if (totalPages <= 4) {
+  if (totalPages <= 3) {
     return Array.from({ length: totalPages }, (_, index) => index + 1)
   }
 
-  return [1, 2, 3, 'ellipsis']
+  return [1, 2, 'ellipsis']
 })
 
 const updateViewportMode = (): void => {
@@ -1630,7 +1628,6 @@ onBeforeUnmount(() => {
           class="w-full justify-end"
         >
           <PaginationContent>
-            <PaginationFirst />
             <PaginationPrevious />
 
             <template
@@ -1648,7 +1645,6 @@ onBeforeUnmount(() => {
             </template>
 
             <PaginationNext />
-            <PaginationLast />
           </PaginationContent>
         </Pagination>
       </div>
@@ -2911,6 +2907,23 @@ onBeforeUnmount(() => {
   background: #fff;
   border-top: 1px solid #e2e8f0;
   padding-top: 0.75rem;
+  padding-bottom: 0.25rem;
+  overflow-x: auto;
+}
+
+.pagination-footer :deep([data-slot='pagination-content']) {
+  width: 100%;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+
+.pagination-footer :deep([data-slot='pagination-item']),
+.pagination-footer :deep([data-slot='pagination-previous']),
+.pagination-footer :deep([data-slot='pagination-next']) {
+  min-width: 2.1rem;
+  height: 2.1rem;
+  padding: 0.2rem 0.45rem;
 }
 
 .filters-collapse-enter-active,

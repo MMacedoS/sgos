@@ -19,17 +19,6 @@ const emit = defineEmits<{
 
 <template>
   <footer class="mobile-footer mobile-only">
-    <!-- <button
-      v-for="item in items"
-      :key="item.id"
-      type="button"
-      class="footer-item"
-      :class="{ active: activeSection === item.id }"
-      @click="emit('change-section', item.id)"
-    >
-      <span><component :is="item.icon" /></span>
-      <small>{{ item.label }}</small>
-    </button> -->
     <dropdown-menu v-for="item in items" :key="item.id"  :class="{ active: activeSection === item.id }" 
       class="footer-item">
       <dropdown-menu-trigger class="w-full h-full content-center text-center grid place-items-center">

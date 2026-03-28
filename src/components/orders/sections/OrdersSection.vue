@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import {
   Pagination,
   PaginationContent,
@@ -30,6 +30,8 @@ import type {
 import { formatCurrencyBRL } from '@/utils'
 
 const ORDERS_PER_PAGE = 5
+const MOBILE_ORDERS_PER_PAGE = 1
+const MOBILE_BREAKPOINT = 768
 
 type OrderStatusFilter = 'todos' | OrderServiceStatus
 type OrderItemType = 'service' | 'product'
@@ -302,6 +304,7 @@ const employees = ref<EmployeeResource[]>([])
 const services = ref<ServiceResource[]>([])
 const products = ref<ProductResource[]>([])
 const orderCurrentPage = ref(1)
+const isMobileViewport = ref(false)
 
 const orderFilters = ref<{ search: string; status: OrderStatusFilter }>({
   search: '',
@@ -541,13 +544,17 @@ const filteredOrders = computed(() => {
   })
 })
 
+const orderItemsPerPage = computed(() => {
+  return isMobileViewport.value ? MOBILE_ORDERS_PER_PAGE : ORDERS_PER_PAGE
+})
+
 const orderTotalPages = computed(() => {
-  return Math.max(1, Math.ceil(filteredOrders.value.length / ORDERS_PER_PAGE))
+  return Math.max(1, Math.ceil(filteredOrders.value.length / orderItemsPerPage.value))
 })
 
 const paginatedOrders = computed(() => {
-  const start = (orderCurrentPage.value - 1) * ORDERS_PER_PAGE
-  const end = start + ORDERS_PER_PAGE
+  const start = (orderCurrentPage.value - 1) * orderItemsPerPage.value
+  const end = start + orderItemsPerPage.value
   return filteredOrders.value.slice(start, end)
 })
 
@@ -556,12 +563,20 @@ const orderDisplayStart = computed(() => {
     return 0
   }
 
-  return (orderCurrentPage.value - 1) * ORDERS_PER_PAGE + 1
+  return (orderCurrentPage.value - 1) * orderItemsPerPage.value + 1
 })
 
 const orderDisplayEnd = computed(() => {
-  return Math.min(orderCurrentPage.value * ORDERS_PER_PAGE, filteredOrders.value.length)
+  return Math.min(orderCurrentPage.value * orderItemsPerPage.value, filteredOrders.value.length)
 })
+
+const updateViewportMode = (): void => {
+  if (typeof window === 'undefined') {
+    return
+  }
+
+  isMobileViewport.value = window.innerWidth <= MOBILE_BREAKPOINT
+}
 
 watch(filteredOrders, () => {
   orderCurrentPage.value = 1
@@ -1424,10 +1439,22 @@ const deleteOrder = async (orderId: string | number): Promise<void> => {
 }
 
 onMounted(async () => {
+  updateViewportMode()
+
+  if (typeof window !== 'undefined') {
+    window.addEventListener('resize', updateViewportMode)
+  }
+
   try {
     await Promise.all([loadOrders(), loadDependencies()])
   } catch (error) {
     orderMessage.value = error instanceof Error ? error.message : 'Erro ao carregar ordens de servico.'
+  }
+})
+
+onBeforeUnmount(() => {
+  if (typeof window !== 'undefined') {
+    window.removeEventListener('resize', updateViewportMode)
   }
 })
 </script>
@@ -1582,10 +1609,10 @@ onMounted(async () => {
         </p>
 
         <Pagination
-          v-if="filteredOrders.length > ORDERS_PER_PAGE"
+          v-if="filteredOrders.length > orderItemsPerPage"
           v-model:page="orderCurrentPage"
           :total="filteredOrders.length"
-          :items-per-page="ORDERS_PER_PAGE"
+          :items-per-page="orderItemsPerPage"
           :sibling-count="1"
           show-edges
           class="w-full justify-end"
@@ -2350,6 +2377,11 @@ onMounted(async () => {
   justify-content: space-between;
   align-items: center;
   gap: 0.8rem;
+  position: sticky;
+  top: 0;
+  z-index: 30;
+  background: #fff;
+  padding: 0.35rem 0;
 }
 
 .summary-grid {
@@ -2861,6 +2893,12 @@ onMounted(async () => {
   margin-top: 1rem;
   display: grid;
   gap: 0.75rem;
+  position: sticky;
+  bottom: 0;
+  z-index: 20;
+  background: #fff;
+  border-top: 1px solid #e2e8f0;
+  padding-top: 0.75rem;
 }
 
 .filters-collapse-enter-active,

@@ -1,9 +1,21 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { useCepLookup, usePersonFormFields } from '@/composables'
+import {
+  Pagination,
+  PaginationContent,
+  PaginationEllipsis,
+  PaginationFirst,
+  PaginationItem,
+  PaginationLast,
+  PaginationNext,
+  PaginationPrevious,
+} from '@/components/ui/pagination'
 import { usersService } from '@/services'
 import { formatCEP, formatPhoneBR, isValidCPF, isValidPhoneBR } from '@/utils'
 import type { EmployeeResource, PersonPayload, PersonResource } from '@/types/backoffice'
+
+const USERS_PER_PAGE = 9
 
 const emptyPersonPayload = (): PersonPayload => ({
   name: '',
@@ -40,6 +52,7 @@ const { cepMessage, handleCepInput, isLoadingCep, loadAddressByCep, resetCepStat
 const { formatDocument, formatDocumentDisplay, formatPhoneDisplay, handleDocumentInput, handlePhoneInput, onlyDigits } = usePersonFormFields(userForm)
 
 const isEditingUser = computed(() => editingUserId.value !== null)
+const userCurrentPage = ref(1)
 
 const filteredUsers = computed(() => {
   const search = userFilters.value.search.trim().toLowerCase()
@@ -59,6 +72,38 @@ const filteredUsers = computed(() => {
 
     return searchMatch && cityMatch && stateMatch
   })
+})
+
+const userTotalPages = computed(() => {
+  return Math.max(1, Math.ceil(filteredUsers.value.length / USERS_PER_PAGE))
+})
+
+const paginatedUsers = computed(() => {
+  const start = (userCurrentPage.value - 1) * USERS_PER_PAGE
+  const end = start + USERS_PER_PAGE
+  return filteredUsers.value.slice(start, end)
+})
+
+const userDisplayStart = computed(() => {
+  if (!filteredUsers.value.length) {
+    return 0
+  }
+
+  return (userCurrentPage.value - 1) * USERS_PER_PAGE + 1
+})
+
+const userDisplayEnd = computed(() => {
+  return Math.min(userCurrentPage.value * USERS_PER_PAGE, filteredUsers.value.length)
+})
+
+watch(filteredUsers, () => {
+  userCurrentPage.value = 1
+})
+
+watch(userTotalPages, (totalPages) => {
+  if (userCurrentPage.value > totalPages) {
+    userCurrentPage.value = totalPages
+  }
 })
 
 const mapPersonToForm = (person: PersonResource): PersonPayload => {
@@ -260,7 +305,7 @@ onMounted(async () => {
 
       <div v-if="!isLoadingUsers" class="customer-cards">
         <article
-          v-for="item in filteredUsers"
+          v-for="item in paginatedUsers"
           :key="item.id"
           class="customer-card cursor-pointer transition hover:-translate-y-0.5 hover:border-indigo-200 hover:shadow-md"
           @click="openEditUserModal(item)"
@@ -276,6 +321,44 @@ onMounted(async () => {
             <span>{{ item.person.state || '--' }}</span>
           </div>
         </article>
+      </div>
+
+      <div v-if="!isLoadingUsers && filteredUsers.length > 0" class="pagination-footer">
+        <p class="muted">
+          Exibindo {{ userDisplayStart }} a {{ userDisplayEnd }} de {{ filteredUsers.length }} usuario(s).
+        </p>
+
+        <Pagination
+          v-if="filteredUsers.length > USERS_PER_PAGE"
+          v-model:page="userCurrentPage"
+          :total="filteredUsers.length"
+          :items-per-page="USERS_PER_PAGE"
+          :sibling-count="1"
+          show-edges
+          class="w-full justify-end"
+        >
+          <PaginationContent v-slot="{ items }">
+            <PaginationFirst />
+            <PaginationPrevious />
+
+            <template
+              v-for="(paginationItem, index) in items"
+              :key="`${paginationItem.type}-${index}`"
+            >
+              <PaginationItem
+                v-if="paginationItem.type === 'page'"
+                :value="paginationItem.value"
+                :is-active="paginationItem.value === userCurrentPage"
+              >
+                {{ paginationItem.value }}
+              </PaginationItem>
+              <PaginationEllipsis v-else :index="index" />
+            </template>
+
+            <PaginationNext />
+            <PaginationLast />
+          </PaginationContent>
+        </Pagination>
       </div>
 
       <p v-if="!isLoadingUsers && filteredUsers.length === 0" class="muted">
@@ -625,6 +708,12 @@ onMounted(async () => {
 .muted {
   color: #6b7280;
   font-size: 0.84rem;
+}
+
+.pagination-footer {
+  margin-top: 1rem;
+  display: grid;
+  gap: 0.75rem;
 }
 
 .filters-collapse-enter-active,

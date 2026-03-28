@@ -1,8 +1,20 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
+import {
+  Pagination,
+  PaginationContent,
+  PaginationEllipsis,
+  PaginationFirst,
+  PaginationItem,
+  PaginationLast,
+  PaginationNext,
+  PaginationPrevious,
+} from '@/components/ui/pagination'
 import type { ServicePayload, ServiceResource } from '@/types/backoffice'
 import { servicesService } from '@/services'
 import { formatCurrencyBRL } from '@/utils'
+
+const SERVICES_PER_PAGE = 9
 
 const emptyServicePayload = (): ServicePayload => ({
   name: '',
@@ -25,6 +37,7 @@ const serviceFilters = ref({
 })
 
 const serviceForm = ref<ServicePayload>(emptyServicePayload())
+const serviceCurrentPage = ref(1)
 
 const isEditingService = computed(() => editingServiceId.value !== null)
 
@@ -41,6 +54,38 @@ const filteredServices = computed(() => {
 
     return searchMatch
   })
+})
+
+const serviceTotalPages = computed(() => {
+  return Math.max(1, Math.ceil(filteredServices.value.length / SERVICES_PER_PAGE))
+})
+
+const paginatedServices = computed(() => {
+  const start = (serviceCurrentPage.value - 1) * SERVICES_PER_PAGE
+  const end = start + SERVICES_PER_PAGE
+  return filteredServices.value.slice(start, end)
+})
+
+const serviceDisplayStart = computed(() => {
+  if (!filteredServices.value.length) {
+    return 0
+  }
+
+  return (serviceCurrentPage.value - 1) * SERVICES_PER_PAGE + 1
+})
+
+const serviceDisplayEnd = computed(() => {
+  return Math.min(serviceCurrentPage.value * SERVICES_PER_PAGE, filteredServices.value.length)
+})
+
+watch(filteredServices, () => {
+  serviceCurrentPage.value = 1
+})
+
+watch(serviceTotalPages, (totalPages) => {
+  if (serviceCurrentPage.value > totalPages) {
+    serviceCurrentPage.value = totalPages
+  }
 })
 
 const mapServiceToForm = (service: ServiceResource): ServicePayload => {
@@ -199,7 +244,7 @@ onMounted(async () => {
 
       <div v-if="!isLoadingServices" class="service-cards grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3 space-x-1">
         <article
-          v-for="item in filteredServices"
+          v-for="item in paginatedServices"
           :key="item.id"
           class="service-card cursor-pointer transition hover:-translate-y-0.5 hover:border-indigo-200 hover:shadow-md"
           @click="openEditServiceModal(item)"
@@ -211,6 +256,44 @@ onMounted(async () => {
           <p>{{ formatCurrencyBRL(item.price) }}</p>
           <p>Duração: {{ item.duration_minutes }} minutos</p>
         </article>
+      </div>
+
+      <div v-if="!isLoadingServices && filteredServices.length > 0" class="pagination-footer">
+        <p class="muted">
+          Exibindo {{ serviceDisplayStart }} a {{ serviceDisplayEnd }} de {{ filteredServices.length }} servico(s).
+        </p>
+
+        <Pagination
+          v-if="filteredServices.length > SERVICES_PER_PAGE"
+          v-model:page="serviceCurrentPage"
+          :total="filteredServices.length"
+          :items-per-page="SERVICES_PER_PAGE"
+          :sibling-count="1"
+          show-edges
+          class="w-full justify-end"
+        >
+          <PaginationContent v-slot="{ items }">
+            <PaginationFirst />
+            <PaginationPrevious />
+
+            <template
+              v-for="(paginationItem, index) in items"
+              :key="`${paginationItem.type}-${index}`"
+            >
+              <PaginationItem
+                v-if="paginationItem.type === 'page'"
+                :value="paginationItem.value"
+                :is-active="paginationItem.value === serviceCurrentPage"
+              >
+                {{ paginationItem.value }}
+              </PaginationItem>
+              <PaginationEllipsis v-else :index="index" />
+            </template>
+
+            <PaginationNext />
+            <PaginationLast />
+          </PaginationContent>
+        </Pagination>
       </div>
 
       <p v-if="!isLoadingServices && filteredServices.length === 0" class="muted">
@@ -447,6 +530,12 @@ onMounted(async () => {
 .muted {
   color: #6b7280;
   font-size: 0.84rem;
+}
+
+.pagination-footer {
+  margin-top: 1rem;
+  display: grid;
+  gap: 0.75rem;
 }
 
 .filters-collapse-enter-active,

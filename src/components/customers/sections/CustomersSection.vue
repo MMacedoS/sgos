@@ -1,9 +1,21 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { useCepLookup, usePersonFormFields } from '@/composables'
+import {
+  Pagination,
+  PaginationContent,
+  PaginationEllipsis,
+  PaginationFirst,
+  PaginationItem,
+  PaginationLast,
+  PaginationNext,
+  PaginationPrevious,
+} from '@/components/ui/pagination'
 import { customersService } from '@/services'
 import { formatCEP, formatPhoneBR, isValidCPF, isValidPhoneBR } from '@/utils'
 import type { CustomerResource, EmployeeResource, PersonPayload, PersonResource } from '@/types/backoffice'
+
+const CUSTOMERS_PER_PAGE = 9
 
 const emptyPersonPayload = (): PersonPayload => ({
   name: '',
@@ -41,6 +53,7 @@ const { cepMessage, handleCepInput, isLoadingCep, loadAddressByCep, resetCepStat
 const { formatDocument, formatDocumentDisplay, formatPhoneDisplay, handleDocumentInput, handlePhoneInput, onlyDigits } = usePersonFormFields(customerForm)
 
 const isEditingCustomer = computed(() => editingCustomerId.value !== null)
+const customerCurrentPage = ref(1)
 
 const filteredCustomers = computed(() => {
   const search = customerFilters.value.search.trim().toLowerCase()
@@ -60,6 +73,38 @@ const filteredCustomers = computed(() => {
 
     return searchMatch && cityMatch && stateMatch
   })
+})
+
+const customerTotalPages = computed(() => {
+  return Math.max(1, Math.ceil(filteredCustomers.value.length / CUSTOMERS_PER_PAGE))
+})
+
+const paginatedCustomers = computed(() => {
+  const start = (customerCurrentPage.value - 1) * CUSTOMERS_PER_PAGE
+  const end = start + CUSTOMERS_PER_PAGE
+  return filteredCustomers.value.slice(start, end)
+})
+
+const customerDisplayStart = computed(() => {
+  if (!filteredCustomers.value.length) {
+    return 0
+  }
+
+  return (customerCurrentPage.value - 1) * CUSTOMERS_PER_PAGE + 1
+})
+
+const customerDisplayEnd = computed(() => {
+  return Math.min(customerCurrentPage.value * CUSTOMERS_PER_PAGE, filteredCustomers.value.length)
+})
+
+watch(filteredCustomers, () => {
+  customerCurrentPage.value = 1
+})
+
+watch(customerTotalPages, (totalPages) => {
+  if (customerCurrentPage.value > totalPages) {
+    customerCurrentPage.value = totalPages
+  }
 })
 
 const mapPersonToForm = (person: PersonResource): PersonPayload => {
@@ -262,7 +307,7 @@ onMounted(async () => {
 
       <div v-if="!isLoadingCustomers" class="customer-cards">
         <article
-          v-for="item in filteredCustomers"
+          v-for="item in paginatedCustomers"
           :key="item.id"
           class="customer-card cursor-pointer transition hover:-translate-y-0.5 hover:border-indigo-200 hover:shadow-md"
           @click="openEditCustomerModal(item)"
@@ -278,6 +323,44 @@ onMounted(async () => {
             <span>{{ item.person.state || '--' }}</span>
           </div>
         </article>
+      </div>
+
+      <div v-if="!isLoadingCustomers && filteredCustomers.length > 0" class="pagination-footer">
+        <p class="muted">
+          Exibindo {{ customerDisplayStart }} a {{ customerDisplayEnd }} de {{ filteredCustomers.length }} cliente(s).
+        </p>
+
+        <Pagination
+          v-if="filteredCustomers.length > CUSTOMERS_PER_PAGE"
+          v-model:page="customerCurrentPage"
+          :total="filteredCustomers.length"
+          :items-per-page="CUSTOMERS_PER_PAGE"
+          :sibling-count="1"
+          show-edges
+          class="w-full justify-end"
+        >
+          <PaginationContent v-slot="{ items }">
+            <PaginationFirst />
+            <PaginationPrevious />
+
+            <template
+              v-for="(paginationItem, index) in items"
+              :key="`${paginationItem.type}-${index}`"
+            >
+              <PaginationItem
+                v-if="paginationItem.type === 'page'"
+                :value="paginationItem.value"
+                :is-active="paginationItem.value === customerCurrentPage"
+              >
+                {{ paginationItem.value }}
+              </PaginationItem>
+              <PaginationEllipsis v-else :index="index" />
+            </template>
+
+            <PaginationNext />
+            <PaginationLast />
+          </PaginationContent>
+        </Pagination>
       </div>
 
       <p v-if="!isLoadingCustomers && filteredCustomers.length === 0" class="muted">
@@ -627,6 +710,12 @@ onMounted(async () => {
 .muted {
   color: #6b7280;
   font-size: 0.84rem;
+}
+
+.pagination-footer {
+  margin-top: 1rem;
+  display: grid;
+  gap: 0.75rem;
 }
 
 .filters-collapse-enter-active,

@@ -1,8 +1,20 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
+import {
+  Pagination,
+  PaginationContent,
+  PaginationEllipsis,
+  PaginationFirst,
+  PaginationItem,
+  PaginationLast,
+  PaginationNext,
+  PaginationPrevious,
+} from '@/components/ui/pagination'
 import { formatCurrencyBRL } from '@/utils'
 import type { ProductPayload, ProductResource, ProductStockHistoryResource } from '@/types/backoffice'
 import { productsService } from '@/services'
+
+const PRODUCTS_PER_PAGE = 9
 
 type StockMovementType = 'entry' | 'exit'
 
@@ -133,6 +145,7 @@ const productFilters = ref({
 })
 
 const productForm = ref<ProductPayload>(emptyProductPayload())
+const productCurrentPage = ref(1)
   
 const isEditingProduct = computed(() => editingProductId.value !== null)
 
@@ -185,6 +198,38 @@ const filteredProducts = computed(() => {
 
     return searchMatch
   })
+})
+
+const productTotalPages = computed(() => {
+  return Math.max(1, Math.ceil(filteredProducts.value.length / PRODUCTS_PER_PAGE))
+})
+
+const paginatedProducts = computed(() => {
+  const start = (productCurrentPage.value - 1) * PRODUCTS_PER_PAGE
+  const end = start + PRODUCTS_PER_PAGE
+  return filteredProducts.value.slice(start, end)
+})
+
+const productDisplayStart = computed(() => {
+  if (!filteredProducts.value.length) {
+    return 0
+  }
+
+  return (productCurrentPage.value - 1) * PRODUCTS_PER_PAGE + 1
+})
+
+const productDisplayEnd = computed(() => {
+  return Math.min(productCurrentPage.value * PRODUCTS_PER_PAGE, filteredProducts.value.length)
+})
+
+watch(filteredProducts, () => {
+  productCurrentPage.value = 1
+})
+
+watch(productTotalPages, (totalPages) => {
+  if (productCurrentPage.value > totalPages) {
+    productCurrentPage.value = totalPages
+  }
 })
 
 const mapProductToForm = (product: ProductResource): ProductPayload => {
@@ -447,7 +492,7 @@ onMounted(async () => {
 
       <div v-if="!isLoadingProducts" class="product-cards grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3 space-x-1">
         <article
-          v-for="item in filteredProducts"
+          v-for="item in paginatedProducts"
           :key="item.id"
           class="product-card cursor-pointer transition hover:-translate-y-0.5 hover:border-indigo-200 hover:shadow-md"
           @click="openEditProductModal(item)"
@@ -459,6 +504,44 @@ onMounted(async () => {
           <p>{{ formatCurrencyBRL(item.amount) }}</p>
           <p>Estoque: {{ item.stock }} unidades</p>
         </article>
+      </div>
+
+      <div v-if="!isLoadingProducts && filteredProducts.length > 0" class="pagination-footer">
+        <p class="muted">
+          Exibindo {{ productDisplayStart }} a {{ productDisplayEnd }} de {{ filteredProducts.length }} produto(s).
+        </p>
+
+        <Pagination
+          v-if="filteredProducts.length > PRODUCTS_PER_PAGE"
+          v-model:page="productCurrentPage"
+          :total="filteredProducts.length"
+          :items-per-page="PRODUCTS_PER_PAGE"
+          :sibling-count="1"
+          show-edges
+          class="w-full justify-end"
+        >
+          <PaginationContent v-slot="{ items }">
+            <PaginationFirst />
+            <PaginationPrevious />
+
+            <template
+              v-for="(paginationItem, index) in items"
+              :key="`${paginationItem.type}-${index}`"
+            >
+              <PaginationItem
+                v-if="paginationItem.type === 'page'"
+                :value="paginationItem.value"
+                :is-active="paginationItem.value === productCurrentPage"
+              >
+                {{ paginationItem.value }}
+              </PaginationItem>
+              <PaginationEllipsis v-else :index="index" />
+            </template>
+
+            <PaginationNext />
+            <PaginationLast />
+          </PaginationContent>
+        </Pagination>
       </div>
 
       <p v-if="!isLoadingProducts && filteredProducts.length === 0" class="muted">
@@ -872,6 +955,12 @@ onMounted(async () => {
 .muted {
   color: #6b7280;
   font-size: 0.84rem;
+}
+
+.pagination-footer {
+  margin-top: 1rem;
+  display: grid;
+  gap: 0.75rem;
 }
 
 .filters-collapse-enter-active,

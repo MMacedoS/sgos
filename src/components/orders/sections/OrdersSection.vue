@@ -98,6 +98,8 @@ interface RemovalConfirmationState {
   installmentId?: string | number
 }
 
+type OrderPaginationToken = number | 'ellipsis'
+
 const ORDER_STATUS_OPTIONS: OrderStatusOption[] = [
   {
     value: 'aberta',
@@ -568,6 +570,16 @@ const orderDisplayStart = computed(() => {
 
 const orderDisplayEnd = computed(() => {
   return Math.min(orderCurrentPage.value * orderItemsPerPage.value, filteredOrders.value.length)
+})
+
+const orderPaginationTokens = computed<OrderPaginationToken[]>(() => {
+  const totalPages = orderTotalPages.value
+
+  if (totalPages <= 4) {
+    return Array.from({ length: totalPages }, (_, index) => index + 1)
+  }
+
+  return [1, 2, 3, 'ellipsis']
 })
 
 const updateViewportMode = (): void => {
@@ -1613,24 +1625,24 @@ onBeforeUnmount(() => {
           v-model:page="orderCurrentPage"
           :total="filteredOrders.length"
           :items-per-page="orderItemsPerPage"
-          :sibling-count="1"
+          :sibling-count="0"
           show-edges
           class="w-full justify-end"
         >
-          <PaginationContent v-slot="{ items }">
+          <PaginationContent>
             <PaginationFirst />
             <PaginationPrevious />
 
             <template
-              v-for="(paginationItem, index) in items"
-              :key="`${paginationItem.type}-${index}`"
+              v-for="(paginationItem, index) in orderPaginationTokens"
+              :key="`${paginationItem}-${index}`"
             >
               <PaginationItem
-                v-if="paginationItem.type === 'page'"
-                :value="paginationItem.value"
-                :is-active="paginationItem.value === orderCurrentPage"
+                v-if="paginationItem !== 'ellipsis'"
+                :value="paginationItem"
+                :is-active="paginationItem === orderCurrentPage"
               >
-                {{ paginationItem.value }}
+                {{ paginationItem }}
               </PaginationItem>
               <PaginationEllipsis v-else :index="index" />
             </template>

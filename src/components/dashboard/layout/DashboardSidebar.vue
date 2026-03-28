@@ -7,7 +7,7 @@ defineProps<{
 }>()
 
 const emit = defineEmits<{
-  (e: 'change-section', section: SectionId): void
+  (e: 'change-section', section?: SectionId): void
   (e: 'logout'): void
 }>()
 </script>

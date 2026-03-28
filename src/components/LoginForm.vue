@@ -2,6 +2,8 @@
 import { ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuth } from '@/composables'
+import Input from './ui/input/Input.vue'
+import Button from './ui/button/Button.vue'
 
 const router = useRouter()
 const { login, isLoading, error } = useAuth()
@@ -39,24 +41,21 @@ const navigateToRegister = (): void => {
       <form @submit.prevent="handleSubmit">
         <div class="form-group">
           <label for="email">Email</label>
-          <input
+          <Input
             id="email"
             v-model="email"
-            type="email"
+            type="email"            
             placeholder="seu@email.com"
-            class="form-input"
-            :disabled="isLoading"
-          />
+            :disabled="isLoading"/>
         </div>
 
         <div class="form-group">
           <label for="password">Senha</label>
-          <input
+          <Input
             id="password"
             v-model="password"
             type="password"
             placeholder="Sua senha"
-            class="form-input"
             :disabled="isLoading"
           />
         </div>
@@ -65,16 +64,17 @@ const navigateToRegister = (): void => {
           {{ formError }}
         </div>
 
-        <button type="submit" class="btn-primary" :disabled="isLoading">
+        <Button type="submit" variant="outline" class="btn-primary shadow-blue-700" :disabled="isLoading">
           {{ isLoading ? 'Conectando...' : 'Login' }}
-        </button>
+        </Button>
       </form>
 
       <p class="register-link">
         Não tem conta?
-        <button type="button" @click="navigateToRegister" class="link-button">
+        <span>Entre em contato com o administrador do sistema.</span>
+        <!-- <button type="button" @click="navigateToRegister" class="link-button">
           Registre-se
-        </button>
+        </button> -->
       </p>
     </div>
   </div>

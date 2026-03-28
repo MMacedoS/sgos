@@ -7,9 +7,17 @@ export type SectionId =
   | 'sales'
   | 'orders'
   | 'cash'
+  | 'settings'
+  | 'profile'
+  | 'billing'
+  | 'reports'
+  | 'analytics'
+
+
 
 export type NavItem = {
-  id: SectionId
+  id?: SectionId
   label: string
   icon: any
+  children?: NavItem[]
 }

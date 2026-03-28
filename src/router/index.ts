@@ -14,15 +14,15 @@ const routes: RouteRecordRaw[] = [
       layout: 'blank',
     },
   },
-  {
-    path: '/register',
-    name: 'register',
-    component: RegisterForm,
-    meta: {
-      requiresAuth: false,
-      layout: 'blank',
-    },
-  },
+  // {
+  //   path: '/register',
+  //   name: 'register',
+  //   component: RegisterForm,
+  //   meta: {
+  //     requiresAuth: false,
+  //     layout: 'blank',
+  //   },
+  // },
   {
     path: '/',
     name: 'home',

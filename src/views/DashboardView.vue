@@ -34,10 +34,26 @@ const navItems: NavItem[] = [
 ]
 
 const mobileNavItems: NavItem[] = [
-  { id: 'overview', label: 'Início', icon: LucideLayoutDashboard },
-  { id: 'customers', label: 'Clientes', icon: LucideUserStar },
-  { id: 'sales', label: 'Vendas', icon: LucideShoppingBag },
-  { id: 'services', label: 'Serviços', icon: LucideBlocks }
+  { label: 'Início', icon: LucideLayoutDashboard, children: [
+    { id: 'overview', label: 'Dashboard', icon: LucideLayoutDashboard },
+    { id: 'analytics', label: 'Analytics', icon: LucideBlocks },
+    { id: 'reports', label: 'Relatórios', icon: LucideBringToFront },
+  ]},
+  { label: 'Parametros', icon: LucideUserRound, children: [
+    { id: 'profile', label: 'Perfil', icon: LucideUserRound },
+    { id: 'settings', label: 'Configurações', icon: LucideUserStar },
+  ]},
+  { label: 'Cadastros', icon: LucideUserStar, children: [
+    { id: 'users', label: 'Usuários', icon: LucideUserRound },
+    { id: 'customers', label: 'Clientes', icon: LucideUserStar },
+    { id: 'services', label: 'Serviços', icon: LucideBlocks },
+    { id: 'products', label: 'Produtos', icon: LucidePackage },
+  ]},
+  { label: 'Fluxo', icon: LucideShoppingBag, children: [
+    { id: 'sales', label: 'Vendas', icon: LucideShoppingBag },
+    { id: 'orders', label: 'Ordens de Serviço', icon: LucideBringToFront },
+    { id: 'cash', label: 'Caixa', icon: LucideDollarSign },
+  ]},
 ]
 
 const dashboardModules = computed((): Array<{ title: string; status: string; id: SectionId }> => [
@@ -65,6 +81,11 @@ const sectionSubtitle = computed(() => {
     sales: 'Visão de vendas e pagamentos',
     orders: 'Ordens de serviço e andamento',
     cash: 'Caixas e movimentos financeiros',
+    billing: 'Gerenciamento de faturamento e assinaturas',
+    reports: 'Relatórios detalhados e exportação de dados',
+    analytics: 'Análise de dados e métricas de desempenho',
+    settings: 'Configurações de conta e preferências do usuário',
+    profile: 'Gerenciamento de perfil e informações pessoais',
   }
 
   return map[activeSection.value]
@@ -80,12 +101,17 @@ const activeApiRoute = computed(() => {
     sales: 'GET|POST /api/v1/vendas',
     orders: 'GET|POST /api/v1/ordens-servico',
     cash: 'GET|POST /api/v1/caixas',
+    billing: 'GET|POST /api/v1/faturamento',
+    reports: 'GET /api/v1/relatorios',
+    analytics: 'GET /api/v1/analytics',
+    settings: 'GET|POST /api/v1/configuracoes',
+    profile: 'GET|POST /api/v1/perfil',
   }
 
   return map[activeSection.value]
 })
 
-const changeSection = (section: SectionId): void => {
+const changeSection = (section: SectionId = 'overview'): void => {
   activeSection.value = section
 }
 

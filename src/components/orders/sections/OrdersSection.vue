@@ -1,5 +1,15 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
+import {
+  Pagination,
+  PaginationContent,
+  PaginationEllipsis,
+  PaginationFirst,
+  PaginationItem,
+  PaginationLast,
+  PaginationNext,
+  PaginationPrevious,
+} from '@/components/ui/pagination'
 import { customersService, orderServicesService, productsService, servicesService, usersService } from '@/services'
 import type {
   CustomerResource,
@@ -18,6 +28,8 @@ import type {
   ServiceResource,
 } from '@/types/backoffice'
 import { formatCurrencyBRL } from '@/utils'
+
+const ORDERS_PER_PAGE = 5
 
 type OrderStatusFilter = 'todos' | OrderServiceStatus
 type OrderItemType = 'service' | 'product'
@@ -289,6 +301,7 @@ const customers = ref<CustomerResource[]>([])
 const employees = ref<EmployeeResource[]>([])
 const services = ref<ServiceResource[]>([])
 const products = ref<ProductResource[]>([])
+const orderCurrentPage = ref(1)
 
 const orderFilters = ref<{ search: string; status: OrderStatusFilter }>({
   search: '',
@@ -526,6 +539,38 @@ const filteredOrders = computed(() => {
 
     return searchMatch && statusMatch
   })
+})
+
+const orderTotalPages = computed(() => {
+  return Math.max(1, Math.ceil(filteredOrders.value.length / ORDERS_PER_PAGE))
+})
+
+const paginatedOrders = computed(() => {
+  const start = (orderCurrentPage.value - 1) * ORDERS_PER_PAGE
+  const end = start + ORDERS_PER_PAGE
+  return filteredOrders.value.slice(start, end)
+})
+
+const orderDisplayStart = computed(() => {
+  if (!filteredOrders.value.length) {
+    return 0
+  }
+
+  return (orderCurrentPage.value - 1) * ORDERS_PER_PAGE + 1
+})
+
+const orderDisplayEnd = computed(() => {
+  return Math.min(orderCurrentPage.value * ORDERS_PER_PAGE, filteredOrders.value.length)
+})
+
+watch(filteredOrders, () => {
+  orderCurrentPage.value = 1
+})
+
+watch(orderTotalPages, (totalPages) => {
+  if (orderCurrentPage.value > totalPages) {
+    orderCurrentPage.value = totalPages
+  }
 })
 
 const loadOrders = async (): Promise<void> => {
@@ -1463,7 +1508,7 @@ onMounted(async () => {
 
       <div v-if="!isLoadingOrders" class="order-cards">
         <article
-          v-for="order in filteredOrders"
+          v-for="order in paginatedOrders"
           :key="order.id"
           :class="['order-card', getStatusOption(order.status).surfaceClass, 'cursor-pointer transition hover:-translate-y-0.5 hover:shadow-md']"
           @click="openEditOrderModal(order)"
@@ -1529,6 +1574,44 @@ onMounted(async () => {
 
           <p class="note-preview">{{ order.note || 'Sem observacoes registradas.' }}</p>
         </article>
+      </div>
+
+      <div v-if="!isLoadingOrders && filteredOrders.length > 0" class="pagination-footer">
+        <p class="muted">
+          Exibindo {{ orderDisplayStart }} a {{ orderDisplayEnd }} de {{ filteredOrders.length }} ordem(ns).
+        </p>
+
+        <Pagination
+          v-if="filteredOrders.length > ORDERS_PER_PAGE"
+          v-model:page="orderCurrentPage"
+          :total="filteredOrders.length"
+          :items-per-page="ORDERS_PER_PAGE"
+          :sibling-count="1"
+          show-edges
+          class="w-full justify-end"
+        >
+          <PaginationContent v-slot="{ items }">
+            <PaginationFirst />
+            <PaginationPrevious />
+
+            <template
+              v-for="(paginationItem, index) in items"
+              :key="`${paginationItem.type}-${index}`"
+            >
+              <PaginationItem
+                v-if="paginationItem.type === 'page'"
+                :value="paginationItem.value"
+                :is-active="paginationItem.value === orderCurrentPage"
+              >
+                {{ paginationItem.value }}
+              </PaginationItem>
+              <PaginationEllipsis v-else :index="index" />
+            </template>
+
+            <PaginationNext />
+            <PaginationLast />
+          </PaginationContent>
+        </Pagination>
       </div>
 
       <p v-if="!isLoadingOrders && filteredOrders.length === 0" class="muted">
@@ -2772,6 +2855,12 @@ onMounted(async () => {
 .muted {
   color: #6b7280;
   font-size: 0.84rem;
+}
+
+.pagination-footer {
+  margin-top: 1rem;
+  display: grid;
+  gap: 0.75rem;
 }
 
 .filters-collapse-enter-active,

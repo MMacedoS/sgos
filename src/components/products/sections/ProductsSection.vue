@@ -13,10 +13,14 @@ import {
 import { formatCurrencyBRL } from '@/utils'
 import type { ProductPayload, ProductResource, ProductStockHistoryResource } from '@/types/backoffice'
 import { productsService } from '@/services'
+import { usePaginationStore } from '@/stores'
 
 const PRODUCTS_PER_PAGE = 9
+const MOBILE_PRODUCTS_PER_PAGE = 4
 
 type StockMovementType = 'entry' | 'exit'
+
+type PaginationToken = number | 'ellipsis'
 
 interface StockMovementRecord {
   id: string
@@ -139,13 +143,21 @@ const isLoadingStockDetails = ref(false)
 const stockProduct = ref<ProductResource | null>(null)
 const stockMovements = ref<StockMovementRecord[]>(loadStoredStockMovements())
 const stockMovementForm = ref(emptyStockMovementForm())
+const paginationStore = usePaginationStore()
+const productCurrentPage = computed({
+  get: () => paginationStore.currentPage,
+  set: (page: number) => {
+    paginationStore.setCurrentPage(Math.max(1, page))
+  },
+})
+
+const isMobileViewport = ref(false)
 
 const productFilters = ref({
   search: ''
 })
 
 const productForm = ref<ProductPayload>(emptyProductPayload())
-const productCurrentPage = ref(1)
   
 const isEditingProduct = computed(() => editingProductId.value !== null)
 
@@ -199,14 +211,17 @@ const filteredProducts = computed(() => {
     return searchMatch
   })
 })
-
-const productTotalPages = computed(() => {
-  return Math.max(1, Math.ceil(filteredProducts.value.length / PRODUCTS_PER_PAGE))
+const productItemsPerPage = computed(() => {
+  return isMobileViewport.value ? MOBILE_PRODUCTS_PER_PAGE : PRODUCTS_PER_PAGE
 })
 
-const paginatedProducts = computed(() => {
-  const start = (productCurrentPage.value - 1) * PRODUCTS_PER_PAGE
-  const end = start + PRODUCTS_PER_PAGE
+const productTotalPages = computed(() => {
+  return Math.max(1, Math.ceil(filteredProducts.value.length / productItemsPerPage.value))
+})
+
+const paginatedProduct = computed(() => {
+  const start = (productCurrentPage.value - 1) * productItemsPerPage.value
+  const end = start + productItemsPerPage.value
   return filteredProducts.value.slice(start, end)
 })
 
@@ -215,22 +230,40 @@ const productDisplayStart = computed(() => {
     return 0
   }
 
-  return (productCurrentPage.value - 1) * PRODUCTS_PER_PAGE + 1
+  return (productCurrentPage.value - 1) * productItemsPerPage.value + 1
 })
 
 const productDisplayEnd = computed(() => {
-  return Math.min(productCurrentPage.value * PRODUCTS_PER_PAGE, filteredProducts.value.length)
+  return Math.min(productCurrentPage.value * productItemsPerPage.value, filteredProducts.value.length)
 })
 
-watch(filteredProducts, () => {
+const paginationTokens = computed<PaginationToken[]>(() => {
+  const totalPages = productTotalPages.value
+
+  if (totalPages <= 3) {
+    return Array.from({ length: totalPages }, (_, index) => index + 1)
+  }
+
+  return [1, 2, 'ellipsis']
+})
+
+const paginatedProducts = computed(() => {
+  const start = (productCurrentPage.value - 1) * productItemsPerPage.value
+  const end = start + productItemsPerPage.value
+  return filteredProducts.value.slice(start, end)
+})
+
+watch(() => [productFilters.value.search], () => {
   productCurrentPage.value = 1
 })
 
 watch(productTotalPages, (totalPages) => {
+  paginationStore.setTotalPages(totalPages)
+
   if (productCurrentPage.value > totalPages) {
     productCurrentPage.value = totalPages
   }
-})
+}, { immediate: true })
 
 const mapProductToForm = (product: ProductResource): ProductPayload => {
   return {
@@ -540,6 +573,25 @@ onMounted(async () => {
 
             <PaginationNext />
             <PaginationLast />
+          </PaginationContent>
+           <PaginationContent>
+            <PaginationPrevious />
+
+            <template
+              v-for="(paginationItem, index) in paginationTokens"
+              :key="`${paginationItem}-${index}`"
+            >
+              <PaginationItem
+                v-if="paginationItem !== 'ellipsis'"
+                :value="paginationItem"
+                :is-active="paginationItem === productCurrentPage"
+              >
+                {{ paginationItem }}
+              </PaginationItem>
+              <PaginationEllipsis v-else :index="index" />
+            </template>
+
+            <PaginationNext />
           </PaginationContent>
         </Pagination>
       </div>

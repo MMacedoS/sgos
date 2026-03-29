@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { usePaginationStore } from '@/stores'
 import {
   Pagination,
   PaginationContent,
@@ -26,6 +27,9 @@ import type {
   ServiceResource,
 } from '@/types/backoffice'
 import { formatCurrencyBRL } from '@/utils'
+import Collapsible from '@/components/ui/collapsible/Collapsible.vue'
+import CollapsibleTrigger from '@/components/ui/collapsible/CollapsibleTrigger.vue'
+import CollapsibleContent from '@/components/ui/collapsible/CollapsibleContent.vue'
 
 const ORDERS_PER_PAGE = 5
 const MOBILE_ORDERS_PER_PAGE = 1
@@ -303,7 +307,13 @@ const customers = ref<CustomerResource[]>([])
 const employees = ref<EmployeeResource[]>([])
 const services = ref<ServiceResource[]>([])
 const products = ref<ProductResource[]>([])
-const orderCurrentPage = ref(1)
+const paginationStore = usePaginationStore()
+const orderCurrentPage = computed({
+  get: () => paginationStore.currentPage,
+  set: (page: number) => {
+    paginationStore.setCurrentPage(Math.max(1, page))
+  },
+})
 const isMobileViewport = ref(false)
 
 const orderFilters = ref<{ search: string; status: OrderStatusFilter }>({
@@ -588,15 +598,17 @@ const updateViewportMode = (): void => {
   isMobileViewport.value = window.innerWidth <= MOBILE_BREAKPOINT
 }
 
-watch(filteredOrders, () => {
+watch(() => [orderFilters.value.search, orderFilters.value.status], () => {
   orderCurrentPage.value = 1
 })
 
 watch(orderTotalPages, (totalPages) => {
+  paginationStore.setTotalPages(totalPages)
+
   if (orderCurrentPage.value > totalPages) {
     orderCurrentPage.value = totalPages
   }
-})
+}, { immediate: true })
 
 const loadOrders = async (): Promise<void> => {
   isLoadingOrders.value = true
@@ -1497,24 +1509,24 @@ onBeforeUnmount(() => {
         </div>
       </header>
 
-      <section class="summary-grid">
-        <article class="summary-card summary-card-open">
+      <section class="grid grid-cols-3 gap-4 sm:grid-cols-2 lg:grid-cols-5 mb-6">
+        <article class="text-sm text-slate-500 flex flex-col text-center rounded-lg gap-1 p-3 border-1 summary-card-open justify-center">
           <span>Abertas</span>
           <strong>{{ orderStats.openCount }}</strong>
         </article>
-        <article class="summary-card summary-card-progress">
+        <article class="text-sm text-slate-500 flex flex-col text-center rounded-lg gap-1 p-3 border-1 summary-card-progress justify-center">
           <span>Em andamento</span>
           <strong>{{ orderStats.inProgressCount }}</strong>
         </article>
-        <article class="summary-card summary-card-done">
+        <article class="text-sm text-slate-500 flex flex-col text-center rounded-lg gap-1 p-3 border-1 summary-card-done justify-center">
           <span>Concluidas</span>
           <strong>{{ orderStats.completedCount }}</strong>
         </article>
-        <article class="summary-card summary-card-cancelled">
+        <article class="text-sm text-slate-500 flex flex-col text-center rounded-lg gap-1 p-3 border-1 summary-card-cancelled justify-center">
           <span>Canceladas</span>
           <strong>{{ orderStats.cancelledCount }}</strong>
         </article>
-        <article class="summary-card summary-card-total">
+        <article class="text-sm text-slate-500 flex flex-col col-span-2 sm:col-span-2 lg:col-span-1 text-center rounded-lg gap-1 p-3 border-1 summary-card-total justify-center">
           <span>Valor total</span>
           <strong>{{ formatCurrencyBRL(orderStats.totalAmount) }}</strong>
         </article>
@@ -1584,28 +1596,37 @@ onBeforeUnmount(() => {
             <span>{{ order.products.length }} produto(s)</span>
           </div>
 
-          <div class="status-field" @click.stop>
-            <span class="meta-label">Alterar status</span>
-            <div class="status-actions">
-              <button
-                v-for="option in ORDER_STATUS_OPTIONS"
-                :key="option.value"
-                type="button"
-                :disabled="statusUpdateOrderId === order.id"
-                :class="[
-                  'status-chip',
-                  option.cardClass,
-                  order.status === option.value ? 'status-chip-active' : '',
-                ]"
-                @click.stop="updateOrderStatus(order, option.value)"
-              >
-                <span class="status-chip-main">
-                  <span class="status-chip-icon" aria-hidden="true">{{ option.icon }}</span>
-                  <span class="status-chip-label">{{ option.label }}</span>
-                </span>
-                <small class="status-chip-helper">{{ option.helper }}</small>
-              </button>
-            </div>
+          <div class="status-field" @click.stop>            
+              <Collapsible v-if="ORDER_STATUS_OPTIONS.length > 0" class="status-collapsible">
+                <CollapsibleTrigger class="status-collapsible-trigger">
+                  <span class="text-sm text-slate-500 meta-label">Alterar status
+                  <span class="ml-1 text-xs text-slate-400" aria-hidden="true">▼</span>
+                  </span>
+                </CollapsibleTrigger>
+                <CollapsibleContent class="status-collapsible-content">
+                  <div class="status-actions">
+                    <button
+                      v-for="option in ORDER_STATUS_OPTIONS"
+                      :key="option.value"
+                      type="button"
+                      :disabled="statusUpdateOrderId === order.id"
+                      class="col-span-1 rounded-lg px-3 py-2 text-sm transition disabled:cursor-not-allowed disabled:opacity-50 w-full!"
+                      :class="[
+                        'status-chip',
+                        option.cardClass,
+                        order.status === option.value ? 'status-chip-active' : '',
+                      ]"
+                      @click.stop="updateOrderStatus(order, option.value)"
+                    >
+                      <span class="status-chip-main">
+                        <span class="status-chip-icon" aria-hidden="true">{{ option.icon }}</span>
+                        <span class="status-chip-label">{{ option.label }}</span>
+                      </span>
+                      <small class="status-chip-helper">{{ option.helper }}</small>
+                    </button>
+                  </div>
+                </CollapsibleContent>
+              </Collapsible>              
             <span v-if="statusUpdateOrderId === order.id" class="status-feedback">Atualizando status...</span>
           </div>
 
@@ -2611,6 +2632,7 @@ onBeforeUnmount(() => {
 
 .status-chip {
   display: grid;
+  width: max-content;
   gap: 0.18rem;
   text-align: left;
   border-radius: 14px;

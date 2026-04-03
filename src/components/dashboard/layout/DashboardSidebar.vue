@@ -40,12 +40,19 @@ const emit = defineEmits<{
 <style scoped>
 .sidebar {
   width: 280px;
+  height: 100dvh;
   background: linear-gradient(180deg, #4f46e5 0%, #3730a3 100%);
   color: #fff;
   padding: 1.2rem;
   display: flex;
   flex-direction: column;
   gap: 1rem;
+  position: fixed;
+  left: 0;
+  top: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  z-index: 100;
 }
 
 .brand h1 {
@@ -102,6 +109,12 @@ const emit = defineEmits<{
 @media (max-width: 768px) {
   .desktop-only {
     display: none;
+  }
+
+  .sidebar {
+    position: static;
+    width: auto;
+    height: auto;
   }
 }
 </style>

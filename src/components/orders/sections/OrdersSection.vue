@@ -62,6 +62,7 @@ interface OrderFormState {
   services: OrderLineItemForm[]
   products: OrderLineItemForm[]
   payments: OrderPaymentForm[]
+  discount_percentage: number
   opening_date: string
   closing_date?: string
   note?: string
@@ -165,6 +166,7 @@ const emptyOrderForm = (): OrderFormState => ({
   services: [],
   products: [],
   payments: [],
+  discount_percentage: 0,
   opening_date: createDefaultOpeningDate(),
   closing_date: undefined,
   note: undefined,
@@ -199,6 +201,41 @@ const normalizeDateValue = (value?: string): string | undefined => {
   }
 
   return trimmed.slice(0, 10)
+}
+
+const normalizeDiscountPercentageValue = (value?: number | string | null): number => {
+  const parsedValue = Number(value ?? 0)
+
+  if (!Number.isFinite(parsedValue) || parsedValue <= 0) {
+    return 0
+  }
+
+  if (parsedValue <= 1) {
+    return Number((parsedValue * 100).toFixed(2))
+  }
+
+  return Math.min(100, Number(parsedValue.toFixed(2)))
+}
+
+const resolveOrderDiscountPercentage = (order: OrderServiceResource): number => {
+  const explicitPercentage = Number(order.discount_percentage ?? 0)
+
+  if (Number.isFinite(explicitPercentage) && explicitPercentage > 0) {
+    return normalizeDiscountPercentageValue(explicitPercentage)
+  }
+
+  const discountAmount = Number(order.discount ?? 0)
+  const grossTotal = Number(order.total_value ?? 0) + discountAmount
+
+  if (!Number.isFinite(discountAmount) || discountAmount <= 0) {
+    return 0
+  }
+
+  if (!Number.isFinite(grossTotal) || grossTotal <= 0) {
+    return 0
+  }
+
+  return Number(((discountAmount / grossTotal) * 100).toFixed(2))
 }
 
 const formatDate = (value?: string): string => {
@@ -288,6 +325,7 @@ const mapOrderToForm = (order: OrderServiceResource): OrderFormState => ({
   payments: order.payments?.length
     ? order.payments.map(mapPaymentResource).filter((item): item is OrderPaymentForm => item !== null)
     : [],
+  discount_percentage: resolveOrderDiscountPercentage(order),
   opening_date: normalizeDateValue(order.opening_date) ?? createDefaultOpeningDate(),
   closing_date: normalizeDateValue(order.closing_date),
   note: order.note ?? undefined,
@@ -302,6 +340,7 @@ const showOrderModal = ref(false)
 const showFilters = ref(false)
 const editingOrderId = ref<string | number | null>(null)
 const statusUpdateOrderId = ref<string | number | null>(null)
+const isPrintingOrderId = ref<string | number | null>(null)
 const orders = ref<OrderServiceResource[]>([])
 const customers = ref<CustomerResource[]>([])
 const employees = ref<EmployeeResource[]>([])
@@ -394,11 +433,44 @@ const selectedProductItems = computed<OrderLineItemView[]>(() => {
   })
 })
 
-const calculatedTotal = computed(() => {
+const calculatedSubtotal = computed(() => {
   const serviceTotal = selectedServiceItems.value.reduce((sum, item) => sum + item.subtotal, 0)
   const productTotal = selectedProductItems.value.reduce((sum, item) => sum + item.subtotal, 0)
   return serviceTotal + productTotal
 })
+
+const discountPercentage = computed(() => {
+  const parsedValue = Number(orderForm.value.discount_percentage ?? 0)
+
+  if (!Number.isFinite(parsedValue) || parsedValue <= 0) {
+    return 0
+  }
+
+  return Math.min(100, parsedValue)
+})
+
+const discountDecimal = computed(() => {
+  return Number((discountPercentage.value / 100).toFixed(4))
+})
+
+const discountValue = computed(() => {
+  return Number((calculatedSubtotal.value * discountDecimal.value).toFixed(2))
+})
+
+const calculatedTotal = computed(() => {
+  return Math.max(0, Number((calculatedSubtotal.value - discountValue.value).toFixed(2)))
+})
+
+const updateDiscountPercentage = (value: number): void => {
+  const parsedValue = Number(value)
+
+  if (!Number.isFinite(parsedValue) || parsedValue <= 0) {
+    orderForm.value.discount_percentage = 0
+    return
+  }
+
+  orderForm.value.discount_percentage = Math.min(100, parsedValue)
+}
 
 const paymentsTotal = computed(() => {
   return orderForm.value.payments.reduce((sum, payment) => sum + Math.max(0, Number(payment.amount || 0)), 0)
@@ -780,6 +852,596 @@ const isInstallmentLocked = (installment?: OrderPaymentInstallmentResource): boo
 const getPaymentMethodLabel = (method: OrderPaymentMethod): string => {
   const option = PAYMENT_METHOD_OPTIONS.find((entry) => entry.value === method)
   return option?.label ?? method
+}
+
+const escapeHtml = (value?: string | number | null): string => {
+  return String(value ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;')
+}
+
+const getOrderServiceLineItems = (order: OrderServiceResource): OrderLineItemView[] => {
+  if (order.service_items?.length) {
+    return order.service_items.map((item) => {
+      const quantity = Math.max(1, Number(item.quantity ?? 1))
+      const unitPrice = Math.max(0, Number(item.unit_price ?? item.service?.price ?? 0))
+      const subtotal = Number(item.subtotal ?? quantity * unitPrice)
+
+      return {
+        id: normalizeId(item.id ?? item.service_id ?? item.service?.id),
+        name: item.service?.name ?? `Servico ${item.service_id ?? item.id ?? ''}`,
+        description: item.service?.description,
+        quantity,
+        unit_price: unitPrice,
+        subtotal,
+        meta: item.service?.duration_minutes ? `${item.service.duration_minutes} min` : undefined,
+      }
+    })
+  }
+
+  return (order.services ?? []).map((service) => ({
+    id: normalizeId(service.id),
+    name: service.name ?? `Servico ${service.id}`,
+    description: service.description,
+    quantity: 1,
+    unit_price: Number(service.price ?? 0),
+    subtotal: Number(service.price ?? 0),
+    meta: service.duration_minutes ? `${service.duration_minutes} min` : undefined,
+  }))
+}
+
+const getOrderProductLineItems = (order: OrderServiceResource): OrderLineItemView[] => {
+  if (order.product_items?.length) {
+    return order.product_items.map((item) => {
+      const quantity = Math.max(1, Number(item.quantity ?? 1))
+      const unitPrice = Math.max(0, Number(item.unit_price ?? item.product?.amount ?? 0))
+      const subtotal = Number(item.subtotal ?? quantity * unitPrice)
+
+      return {
+        id: normalizeId(item.id ?? item.product_id ?? item.product?.id),
+        name: item.product?.name ?? `Produto ${item.product_id ?? item.id ?? ''}`,
+        description: item.product?.description,
+        quantity,
+        unit_price: unitPrice,
+        subtotal,
+        meta: item.product ? `Estoque: ${item.product.stock}` : undefined,
+      }
+    })
+  }
+
+  return (order.products ?? []).map((product) => ({
+    id: normalizeId(product.id),
+    name: product.name ?? `Produto ${product.id}`,
+    description: product.description,
+    quantity: 1,
+    unit_price: Number(product.amount ?? 0),
+    subtotal: Number(product.amount ?? 0),
+    meta: `Estoque: ${product.stock}`,
+  }))
+}
+
+const buildPrintLineRows = (items: OrderLineItemView[], emptyLabel: string): string => {
+  if (!items.length) {
+    return `<tr><td colspan="4" class="empty-row">${escapeHtml(emptyLabel)}</td></tr>`
+  }
+
+  return items.map((item) => {
+    const details = [item.description, item.meta].filter(Boolean).join(' • ')
+
+    return `
+      <tr>
+        <td>
+          <strong>${escapeHtml(item.name)}</strong>
+          <div class="row-helper">${escapeHtml(details || 'Item sem detalhes adicionais')}</div>
+        </td>
+        <td>${item.quantity}</td>
+        <td>${escapeHtml(formatCurrencyBRL(item.unit_price))}</td>
+        <td>${escapeHtml(formatCurrencyBRL(item.subtotal))}</td>
+      </tr>
+    `
+  }).join('')
+}
+
+const buildPrintPaymentRows = (payments: OrderPaymentResource[]): string => {
+  if (!payments.length) {
+    return `<tr><td colspan="5" class="empty-row">Nenhum pagamento registrado.</td></tr>`
+  }
+
+  return payments.map((payment) => {
+    const paymentMethod = payment.payment_method ?? payment.method ?? 'pix'
+    const paymentStatus = getPaymentStatusLabel(payment.status)
+    const paymentNote = payment.note?.trim() || 'Sem observacoes'
+
+    return `
+      <tr>
+        <td>${escapeHtml(getPaymentMethodLabel(paymentMethod))}</td>
+        <td>${escapeHtml(formatCurrencyBRL(Number(payment.value ?? payment.amount ?? 0)))}</td>
+        <td>${escapeHtml(String(payment.installments ?? 1))}</td>
+        <td>${escapeHtml(paymentStatus)}</td>
+        <td>
+          <strong>${escapeHtml(formatDate(payment.payment_date ?? payment.paid_at))}</strong>
+          <div class="row-helper">${escapeHtml(paymentNote)}</div>
+        </td>
+      </tr>
+    `
+  }).join('')
+}
+
+const createOrderPrintMarkup = (order: OrderServiceResource): string => {
+  const serviceRows = buildPrintLineRows(getOrderServiceLineItems(order), 'Nenhum servico adicionado.')
+  const productRows = buildPrintLineRows(getOrderProductLineItems(order), 'Nenhum produto adicionado.')
+  const paymentRows = buildPrintPaymentRows(order.payments ?? [])
+  const totalValue = Number(order.total_value ?? 0)
+  const amountPaid = Number(order.amount_paid ?? 0)
+  const amountDue = Number(order.amount_due ?? Math.max(totalValue - amountPaid, 0))
+  const noteSection = order.note?.trim()
+    ? `
+      <section class="print-block note-block">
+        <h2>Observacoes</h2>
+        <p>${escapeHtml(order.note)}</p>
+      </section>
+    `
+    : ''
+
+  return `
+    <!doctype html>
+    <html lang="pt-BR">
+      <head>
+        <meta charset="UTF-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <title>${escapeHtml(order.number || `OS ${order.id}`)}</title>
+        <style>
+          @page {
+            size: A4 portrait;
+            margin: 12mm;
+          }
+
+          * {
+            box-sizing: border-box;
+          }
+
+          html {
+            background: #ffffff;
+          }
+
+          body {
+            margin: 0;
+            font-family: Inter, Arial, sans-serif;
+            color: #0f172a;
+            background: #eef2ff;
+            -webkit-print-color-adjust: exact;
+            print-color-adjust: exact;
+          }
+
+          .print-shell {
+            max-width: 920px;
+            margin: 0 auto;
+            padding: 20px;
+          }
+
+          .print-card {
+            background: #ffffff;
+            border-radius: 22px;
+            padding: 22px;
+            box-shadow: 0 18px 48px rgba(15, 23, 42, 0.1);
+          }
+
+          .hero {
+            display: flex;
+            justify-content: space-between;
+            gap: 16px;
+            align-items: flex-start;
+            padding-bottom: 16px;
+            border-bottom: 1px solid #e2e8f0;
+          }
+
+          .eyebrow {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            border-radius: 999px;
+            background: #eef2ff;
+            color: #4338ca;
+            padding: 6px 12px;
+            font-size: 12px;
+            font-weight: 700;
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+          }
+
+          h1 {
+            margin: 12px 0 6px;
+            font-size: 28px;
+            line-height: 1.15;
+          }
+
+          .hero p {
+            margin: 0;
+            color: #475569;
+          }
+
+          .status-pill {
+            border-radius: 999px;
+            padding: 8px 14px;
+            background: #e0e7ff;
+            color: #3730a3;
+            font-size: 12px;
+            font-weight: 800;
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+            white-space: nowrap;
+          }
+
+          .meta-grid,
+          .summary-grid {
+            display: grid;
+            grid-template-columns: repeat(3, minmax(0, 1fr));
+            gap: 10px;
+            margin-top: 16px;
+          }
+
+          .meta-card,
+          .summary-card {
+            border: 1px solid #e2e8f0;
+            border-radius: 14px;
+            padding: 12px;
+            background: linear-gradient(180deg, #ffffff, #f8fafc);
+          }
+
+          .meta-card span,
+          .summary-card span {
+            display: block;
+            margin-bottom: 6px;
+            color: #64748b;
+            font-size: 11px;
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+          }
+
+          .meta-card strong,
+          .summary-card strong {
+            display: block;
+            font-size: 15px;
+            line-height: 1.35;
+          }
+
+          .print-block {
+            margin-top: 14px;
+            border: 1px solid #e2e8f0;
+            border-radius: 14px;
+            padding: 12px;
+            background: #ffffff;
+          }
+
+          .print-block h2 {
+            margin: 0 0 10px;
+            font-size: 15px;
+          }
+
+          table {
+            width: 100%;
+            border-collapse: collapse;
+            table-layout: fixed;
+          }
+
+          thead {
+            display: table-header-group;
+          }
+
+          tr {
+            page-break-inside: avoid;
+          }
+
+          th,
+          td {
+            padding: 8px 6px;
+            border-bottom: 1px solid #e2e8f0;
+            text-align: left;
+            vertical-align: top;
+            font-size: 12px;
+            word-break: break-word;
+          }
+
+          th {
+            color: #475569;
+            font-size: 10px;
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+          }
+
+          th:nth-child(2),
+          th:nth-child(3),
+          th:nth-child(4),
+          td:nth-child(2),
+          td:nth-child(3),
+          td:nth-child(4) {
+            width: 12%;
+            white-space: nowrap;
+          }
+
+          .row-helper {
+            margin-top: 4px;
+            color: #64748b;
+            font-size: 11px;
+            line-height: 1.45;
+          }
+
+          .empty-row {
+            color: #64748b;
+            text-align: center;
+            padding: 16px 8px;
+          }
+
+          .note-block p {
+            margin: 0;
+            color: #334155;
+            line-height: 1.6;
+          }
+
+          .footer {
+            display: flex;
+            justify-content: space-between;
+            gap: 12px;
+            margin-top: 14px;
+            padding-top: 10px;
+            border-top: 1px solid #e2e8f0;
+            color: #64748b;
+            font-size: 11px;
+          }
+
+          @media print {
+            body {
+              background: #ffffff;
+            }
+
+            .print-shell {
+              max-width: 100%;
+              padding: 0;
+            }
+
+            .print-card {
+              width: 100%;
+              border-radius: 0;
+              box-shadow: none;
+              padding: 0;
+            }
+
+            .hero {
+              display: grid;
+              grid-template-columns: minmax(0, 1fr) auto;
+              align-items: start;
+            }
+
+            .footer {
+              display: grid;
+              grid-template-columns: minmax(0, 1fr) auto;
+              align-items: center;
+            }
+
+            .meta-grid,
+            .summary-grid {
+              display: grid;
+              grid-template-columns: repeat(3, minmax(0, 1fr));
+              gap: 8px;
+              margin-top: 12px;
+            }
+
+            .meta-card,
+            .summary-card,
+            .print-block,
+            .note-block {
+              break-inside: avoid;
+              page-break-inside: avoid;
+            }
+          }
+
+          @media (max-width: 720px) {
+            .hero,
+            .footer {
+              flex-direction: column;
+            }
+
+            .meta-grid,
+            .summary-grid {
+              grid-template-columns: 1fr;
+            }
+          }
+        </style>
+      </head>
+      <body>
+        <div class="print-shell">
+          <main class="print-card">
+            <section class="hero">
+              <div>
+                <span class="eyebrow">Ordem de Servico</span>
+                <h1>${escapeHtml(order.number || `OS ${order.id}`)}</h1>
+                <p>Documento gerado em ${escapeHtml(new Intl.DateTimeFormat('pt-BR', { dateStyle: 'short', timeStyle: 'short' }).format(new Date()))}</p>
+              </div>
+              <span class="status-pill">${escapeHtml(getStatusOption(order.status).badgeLabel)}</span>
+            </section>
+
+            <section class="meta-grid">
+              <article class="meta-card">
+                <span>Cliente</span>
+                <strong>${escapeHtml(getCustomerName(order.customer))}</strong>
+              </article>
+              <article class="meta-card">
+                <span>Responsavel</span>
+                <strong>${escapeHtml(getEmployeeName(order.employee))}</strong>
+              </article>
+              <article class="meta-card">
+                <span>Periodo</span>
+                <strong>${escapeHtml(`${formatDate(order.opening_date)} • ${formatDate(order.closing_date)}`)}</strong>
+              </article>
+            </section>
+
+            <section class="summary-grid">
+              <article class="summary-card">
+                <span>Total da ordem</span>
+                <strong>${escapeHtml(formatCurrencyBRL(totalValue))}</strong>
+              </article>
+              <article class="summary-card">
+                <span>Pago</span>
+                <strong>${escapeHtml(formatCurrencyBRL(amountPaid))}</strong>
+              </article>
+              <article class="summary-card">
+                <span>Em aberto</span>
+                <strong>${escapeHtml(formatCurrencyBRL(amountDue))}</strong>
+              </article>
+            </section>
+
+            <section class="print-block">
+              <h2>Servicos</h2>
+              <table>
+                <thead>
+                  <tr>
+                    <th>Item</th>
+                    <th>Qtd.</th>
+                    <th>Unitario</th>
+                    <th>Subtotal</th>
+                  </tr>
+                </thead>
+                <tbody>${serviceRows}</tbody>
+              </table>
+            </section>
+
+            <section class="print-block">
+              <h2>Produtos</h2>
+              <table>
+                <thead>
+                  <tr>
+                    <th>Item</th>
+                    <th>Qtd.</th>
+                    <th>Unitario</th>
+                    <th>Subtotal</th>
+                  </tr>
+                </thead>
+                <tbody>${productRows}</tbody>
+              </table>
+            </section>
+
+            <section class="print-block">
+              <h2>Pagamentos</h2>
+              <table>
+                <thead>
+                  <tr>
+                    <th>Metodo</th>
+                    <th>Valor</th>
+                    <th>Parcelas</th>
+                    <th>Status</th>
+                    <th>Detalhes</th>
+                  </tr>
+                </thead>
+                <tbody>${paymentRows}</tbody>
+              </table>
+            </section>
+
+            ${noteSection}
+
+            <footer class="footer">
+              <span>${escapeHtml(getCustomerName(order.customer))}</span>
+              <span>${escapeHtml(order.number || `OS ${order.id}`)}</span>
+            </footer>
+          </main>
+        </div>
+      </body>
+    </html>
+  `
+}
+
+const printOrder = async (order: OrderServiceResource): Promise<void> => {
+  if (typeof window === 'undefined') {
+    return
+  }
+
+  if (isPrintingOrderId.value === order.id) {
+    return
+  }
+
+  isPrintingOrderId.value = order.id
+  orderMessage.value = ''
+
+  const printWindow = window.open('', '_blank', 'width=1024,height=768')
+
+  if (!printWindow) {
+    orderMessage.value = 'Nao foi possivel abrir a janela de impressao.'
+    isPrintingOrderId.value = null
+    return
+  }
+
+  printWindow.document.open()
+  printWindow.document.write(`
+    <!doctype html>
+    <html lang="pt-BR">
+      <head>
+        <meta charset="UTF-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <title>Preparando impressao</title>
+        <style>
+          body {
+            margin: 0;
+            min-height: 100vh;
+            display: grid;
+            place-items: center;
+            font-family: Inter, Arial, sans-serif;
+            background: linear-gradient(135deg, #eef2ff, #f8fafc);
+            color: #0f172a;
+          }
+
+          .print-loading {
+            padding: 24px 28px;
+            border-radius: 20px;
+            background: #ffffff;
+            box-shadow: 0 18px 40px rgba(15, 23, 42, 0.12);
+            text-align: center;
+          }
+
+          .print-loading strong {
+            display: block;
+            margin-bottom: 8px;
+            font-size: 18px;
+          }
+
+          .print-loading span {
+            color: #64748b;
+            font-size: 14px;
+          }
+        </style>
+      </head>
+      <body>
+        <div class="print-loading">
+          <strong>Preparando impressao da ordem</strong>
+          <span>Aguarde alguns instantes...</span>
+        </div>
+      </body>
+    </html>
+  `)
+  printWindow.document.close()
+
+  try {
+    const detailedOrder = await orderServicesService.show(order.id)
+
+    printWindow.document.open()
+    printWindow.document.write(createOrderPrintMarkup(detailedOrder))
+    printWindow.document.close()
+    printWindow.focus()
+
+    window.setTimeout(() => {
+      printWindow.print()
+      printWindow.addEventListener('afterprint', () => printWindow.close(), { once: true })
+    }, 150)
+  } catch (error) {
+    orderMessage.value = error instanceof Error ? error.message : 'Erro ao gerar a impressao da ordem.'
+
+    if (!printWindow.closed) {
+      printWindow.close()
+    }
+  } finally {
+    isPrintingOrderId.value = null
+  }
 }
 
 const reloadEditingOrder = async (): Promise<void> => {
@@ -1303,6 +1965,9 @@ const sanitizePayload = (): OrderServicePayload => {
     service_items: serviceItems,
     product_items: productItems,
     total_value: calculatedTotal.value,
+    amount: calculatedTotal.value,
+    discount: discountValue.value,
+    discount_percentage: discountPercentage.value,
     opening_date: normalizeDateValue(orderForm.value.opening_date) ?? '',
     closing_date: normalizeDateValue(orderForm.value.closing_date),
     note: orderForm.value.note?.trim() || undefined,
@@ -1510,23 +2175,23 @@ onBeforeUnmount(() => {
       </header>
 
       <section class="grid grid-cols-3 gap-4 sm:grid-cols-2 lg:grid-cols-5 mb-6">
-        <article class="text-sm text-slate-500 flex flex-col text-center rounded-lg gap-1 p-3 border-1 summary-card-open justify-center">
+        <article class="text-sm text-slate-500 flex flex-col text-center rounded-lg gap-1 p-3 border summary-card-open justify-center">
           <span>Abertas</span>
           <strong>{{ orderStats.openCount }}</strong>
         </article>
-        <article class="text-sm text-slate-500 flex flex-col text-center rounded-lg gap-1 p-3 border-1 summary-card-progress justify-center">
+        <article class="text-sm text-slate-500 flex flex-col text-center rounded-lg gap-1 p-3 border summary-card-progress justify-center">
           <span>Em andamento</span>
           <strong>{{ orderStats.inProgressCount }}</strong>
         </article>
-        <article class="text-sm text-slate-500 flex flex-col text-center rounded-lg gap-1 p-3 border-1 summary-card-done justify-center">
+        <article class="text-sm text-slate-500 flex flex-col text-center rounded-lg gap-1 p-3 border summary-card-done justify-center">
           <span>Concluidas</span>
           <strong>{{ orderStats.completedCount }}</strong>
         </article>
-        <article class="text-sm text-slate-500 flex flex-col text-center rounded-lg gap-1 p-3 border-1 summary-card-cancelled justify-center">
+        <article class="text-sm text-slate-500 flex flex-col text-center rounded-lg gap-1 p-3 border summary-card-cancelled justify-center">
           <span>Canceladas</span>
           <strong>{{ orderStats.cancelledCount }}</strong>
         </article>
-        <article class="text-sm text-slate-500 flex flex-col col-span-2 sm:col-span-2 lg:col-span-1 text-center rounded-lg gap-1 p-3 border-1 summary-card-total justify-center">
+        <article class="text-sm text-slate-500 flex flex-col col-span-2 sm:col-span-2 lg:col-span-1 text-center rounded-lg gap-1 p-3 border summary-card-total justify-center">
           <span>Valor total</span>
           <strong>{{ formatCurrencyBRL(orderStats.totalAmount) }}</strong>
         </article>
@@ -1594,6 +2259,17 @@ onBeforeUnmount(() => {
           <div class="selection-summary">
             <span>{{ order.services.length }} servico(s)</span>
             <span>{{ order.products.length }} produto(s)</span>
+          </div>
+
+          <div class="order-card-toolbar" @click.stop>
+            <button
+              type="button"
+              class="print-order-button"
+              :disabled="isPrintingOrderId === order.id"
+              @click.stop="printOrder(order)"
+            >
+              {{ isPrintingOrderId === order.id ? 'Preparando impressao...' : 'Imprimir ordem' }}
+            </button>
           </div>
 
           <div class="status-field" @click.stop>            
@@ -1754,6 +2430,37 @@ onBeforeUnmount(() => {
                         type="date"
                         class="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700 outline-none transition focus:border-indigo-500 focus:bg-white focus:ring-4 focus:ring-indigo-100"
                       />
+                    </div>
+
+                    <div class="flex flex-col gap-1.5">
+                      <label class="text-xs font-medium text-slate-600">Desconto (%)</label>
+                      <input
+                        :value="orderForm.discount_percentage"
+                        type="number"
+                        min="0"
+                        max="100"
+                        step="0.01"
+                        placeholder="0.00"
+                        class="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700 outline-none transition focus:border-indigo-500 focus:bg-white focus:ring-4 focus:ring-indigo-100"
+                        @input="updateDiscountPercentage(Number(($event.target as HTMLInputElement).value))"
+                      />
+                    </div>
+                  </div>
+
+                  <div class="mt-4 grid grid-cols-1 gap-3 md:grid-cols-3">
+                    <div class="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3">
+                      <span class="text-[11px] uppercase tracking-[0.08em] text-slate-500">Subtotal</span>
+                      <p class="mt-1 text-sm font-semibold text-slate-800">{{ formatCurrencyBRL(calculatedSubtotal) }}</p>
+                    </div>
+                    <div class="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3">
+                      <span class="text-[11px] uppercase tracking-[0.08em] text-amber-700">Desconto</span>
+                      <p class="mt-1 text-sm font-semibold text-amber-800">{{ discountPercentage.toFixed(2) }}%</p>
+                      <small class="text-amber-700">- {{ formatCurrencyBRL(discountValue) }}</small>
+                    </div>
+                    <div class="rounded-xl border border-indigo-200 bg-indigo-50 px-4 py-3">
+                      <span class="text-[11px] uppercase tracking-[0.08em] text-indigo-700">Total final</span>
+                      <p class="mt-1 text-sm font-semibold text-indigo-800">{{ formatCurrencyBRL(calculatedTotal) }}</p>
+                      <small class="text-indigo-700">Valor abatido enviado: {{ formatCurrencyBRL(discountValue) }}</small>
                     </div>
                   </div>
 
@@ -1931,7 +2638,7 @@ onBeforeUnmount(() => {
                 </article>
               </div>
 
-              <aside class="space-y-5" v-if="isEditingOrder">
+              <aside class="space-y-5">
                 <article class="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm md:p-5">
                   <div class="mb-4 flex items-center gap-3">
                     <span class="text-xs font-semibold uppercase tracking-[0.18em] text-indigo-600">Resumo Financeiro</span>
@@ -1952,7 +2659,16 @@ onBeforeUnmount(() => {
                       <strong>{{ selectedServiceItems.length + selectedProductItems.length }}</strong>
                     </div>
                     <div>
-                      <span class="meta-label">Total previsto</span>
+                      <span class="meta-label">Subtotal</span>
+                      <strong>{{ formatCurrencyBRL(calculatedSubtotal) }}</strong>
+                    </div>
+                    <div>
+                      <span class="meta-label">Desconto aplicado</span>
+                      <strong>{{ discountPercentage.toFixed(2) }}%</strong>
+                      <small class="muted">- {{ formatCurrencyBRL(discountValue) }}</small>
+                    </div>
+                    <div>
+                      <span class="meta-label">Total final</span>
                       <strong class="value-highlight">{{ formatCurrencyBRL(calculatedTotal) }}</strong>
                     </div>
                     <div>
@@ -2617,6 +3333,35 @@ onBeforeUnmount(() => {
   padding: 0.2rem 0.6rem;
   font-size: 0.74rem;
   font-weight: 600;
+}
+
+.order-card-toolbar {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.print-order-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid #c7d2fe;
+  background: linear-gradient(135deg, #eef2ff, #ffffff);
+  color: #4338ca;
+  border-radius: 10px;
+  padding: 0.55rem 0.8rem;
+  font-size: 0.78rem;
+  font-weight: 700;
+  transition: transform 0.18s ease, box-shadow 0.18s ease, opacity 0.18s ease;
+}
+
+.print-order-button:hover:not(:disabled) {
+  transform: translateY(-1px);
+  box-shadow: 0 10px 20px rgba(67, 56, 202, 0.12);
+}
+
+.print-order-button:disabled {
+  cursor: wait;
+  opacity: 0.72;
 }
 
 .status-field {

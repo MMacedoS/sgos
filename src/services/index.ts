@@ -6,6 +6,7 @@ import { createCustomersService } from './customers/CustomersService'
 import { createServicesService } from './offices/servicesService'
 import { createProductsService } from './products/ProductService'
 import { createOrderServicesService } from './orders/OrderServicesService'
+import { createCashService } from './cash/CashService'
 
 const httpClient = new HttpClient()
 export const authService = createAuthService(httpClient)
@@ -15,6 +16,7 @@ export const customersService = createCustomersService(httpClient)
 export const servicesService = createServicesService(httpClient)
 export const productsService = createProductsService(httpClient)
 export const orderServicesService = createOrderServicesService(httpClient)
+export const cashService = createCashService(httpClient)
 
 export {
   HttpClient,
@@ -24,5 +26,6 @@ export {
   createCustomersService,
   createServicesService,
   createProductsService,
-  createOrderServicesService
+  createOrderServicesService,
+  createCashService
 }

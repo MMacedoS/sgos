@@ -155,14 +155,23 @@ const handleLogout = async (): Promise<void> => {
 <style scoped>
 .dashboard-shell {
   display: flex;
-  min-height: 100dvh;
+  height: 100dvh;
   background: #f3f5fb;
   color: #111827;
+  overflow: hidden;
 }
 
 .dashboard-main {
   flex: 1;
   display: flex;
   flex-direction: column;
+  overflow-y: auto;
+  margin-left: 280px;
+}
+
+@media (max-width: 768px) {
+  .dashboard-main {
+    margin-left: 0;
+  }
 }
 </style>

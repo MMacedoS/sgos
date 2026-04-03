@@ -151,6 +151,9 @@ export interface OrderServiceResource {
   product_items?: OrderProductItemResource[]
   payments?: OrderPaymentResource[]
   total_value: number
+  amount?: number
+  discount?: number
+  discount_percentage?: number
   amount_paid?: number
   amount_due?: number
   opening_date: string
@@ -239,6 +242,9 @@ export interface OrderServicePayload {
   product_items?: OrderProductItemPayload[]
   payments?: OrderPaymentPayload[]
   total_value: number
+  amount?: number
+  discount?: number
+  discount_percentage?: number
   opening_date: string
   closing_date?: string
   note?: string
@@ -246,4 +252,107 @@ export interface OrderServicePayload {
 
 export interface OrderServiceStatusPayload {
   status: OrderServiceStatus
+}
+
+export type CashStatus = 'aberto' | 'fechado' | 'ativo' | 'inativo'
+export type CashMovementType = 'entrada' | 'saida' | 'sangria' | 'suprimento' | 'ajuste'
+
+export interface CashResource {
+  id: string | number
+  code?: string | number
+  employee_id?: string | number
+  name?: string
+  nome?: string
+  description?: string
+  descricao?: string
+  status?: CashStatus | string
+  opening_balance?: number
+  initial_balance?: number
+  saldo_inicial?: number
+  current_balance?: number
+  balance?: number
+  saldo_atual?: number
+  final_balance?: number
+  total_entries?: number
+  total_inputs?: number
+  entradas?: number
+  total_exits?: number
+  total_outputs?: number
+  saidas?: number
+  opened_at?: string
+  opening_date?: string
+  aberto_em?: string
+  closed_at?: string
+  closing_date?: string
+  fechado_em?: string
+  note?: string
+  observacao?: string
+  created_at?: string
+  updated_at?: string
+}
+
+export interface CashPayload {
+  name: string
+  nome?: string
+  description?: string
+  descricao?: string
+  opening_balance: number
+  initial_balance?: number
+  saldo_inicial?: number
+}
+
+export interface CashActionPayload {
+  opening_balance?: number
+  initial_balance?: number
+  saldo_inicial?: number
+  closing_balance?: number
+  current_balance?: number
+  balance?: number
+  saldo_atual?: number
+  amount?: number
+  value?: number
+  valor?: number
+  note?: string
+  observacao?: string
+}
+
+export interface CashMovementResource {
+  id: string | number
+  code?: string | number
+  cash_id?: string | number
+  caixa_id?: string | number
+  payment_service_order_id?: string | number | null
+  payment_sale_id?: string | number | null
+  type?: CashMovementType | string
+  tipo?: CashMovementType | string
+  amount?: number
+  value?: number
+  valor?: number
+  note?: string
+  observacao?: string
+  description?: string
+  descricao?: string
+  occurred_at?: string
+  movement_date?: string
+  data?: string
+  created_at?: string
+  updated_at?: string
+  cash?: CashResource
+  caixa?: CashResource
+}
+
+export interface CashMovementPayload {
+  cash_id: string | number
+  caixa_id?: string | number
+  type: CashMovementType
+  tipo?: CashMovementType
+  amount: number
+  value?: number
+  valor?: number
+  note?: string
+  observacao?: string
+  description?: string
+  descricao?: string
+  occurred_at?: string
+  data?: string
 }

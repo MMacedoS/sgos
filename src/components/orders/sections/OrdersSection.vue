@@ -25,6 +25,12 @@ import type {
   OrderServiceStatus,
   ProductResource,
   ServiceResource,
+  OrderStatusOption,
+  PaymentMethodOption,
+  OrderFormState,
+  OrderLineItemForm,
+  OrderPaymentForm,
+  OrderLineItemView
 } from '@/types/backoffice'
 import { formatCurrencyBRL } from '@/utils'
 import Collapsible from '@/components/ui/collapsible/Collapsible.vue'
@@ -38,62 +44,6 @@ const MOBILE_BREAKPOINT = 768
 
 type OrderStatusFilter = 'todos' | OrderServiceStatus
 type OrderItemType = 'service' | 'product'
-
-interface OrderLineItemForm {
-  id: string
-  quantity: number
-  unit_price: number
-}
-
-interface OrderPaymentForm {
-  id: string
-  method: OrderPaymentMethod
-  amount: number
-  installments: number
-  isPersisted: boolean
-  status?: string
-  payment_date?: string | null
-  installment_items?: OrderPaymentInstallmentResource[]
-  note?: string
-}
-
-interface OrderFormState {
-  customer_id?: string | number
-  employee_id?: string | number
-  services: OrderLineItemForm[]
-  products: OrderLineItemForm[]
-  payments: OrderPaymentForm[]
-  discount_percentage: number
-  opening_date: string
-  closing_date?: string
-  note?: string
-}
-
-interface OrderLineItemView {
-  id: string
-  name: string
-  description?: string
-  quantity: number
-  unit_price: number
-  subtotal: number
-  meta?: string
-}
-
-interface OrderStatusOption {
-  value: OrderServiceStatus
-  label: string
-  badgeLabel: string
-  helper: string
-  icon: string
-  badgeClass: string
-  cardClass: string
-  surfaceClass: string
-}
-
-interface PaymentMethodOption {
-  value: OrderPaymentMethod
-  label: string
-}
 
 interface RemovalConfirmationState {
   visible: boolean
@@ -175,9 +125,10 @@ const emptyOrderForm = (): OrderFormState => ({
 
 const normalizeId = (value: string | number | undefined): string => String(value ?? '')
 
-const createLineItem = (id: string | number, unitPrice: number): OrderLineItemForm => ({
+const createLineItem = (id: string | number, unitPrice: number, name: string = ''): OrderLineItemForm => ({
   id: normalizeId(id),
   quantity: 1,
+  name,
   unit_price: unitPrice,
 })
 
@@ -190,7 +141,7 @@ const createPaymentItem = (): OrderPaymentForm => ({
   note: undefined,
 })
 
-const normalizeDateValue = (value?: string): string | undefined => {
+const normalizeDateValue = (value?: string | null): string | undefined => {
   if (!value) {
     return undefined
   }
@@ -239,7 +190,7 @@ const resolveOrderDiscountPercentage = (order: OrderServiceResource): number => 
   return Number(((discountAmount / grossTotal) * 100).toFixed(2))
 }
 
-const formatDate = (value?: string): string => {
+const formatDate = (value?: string | null): string => {
   if (!value) {
     return 'Data indisponivel'
   }
@@ -255,11 +206,11 @@ const formatDate = (value?: string): string => {
   }).format(parsed)
 }
 
-const getCustomerName = (customer?: CustomerResource): string => {
+const getCustomerName = (customer?: CustomerResource | null): string => {
   return customer?.person?.name?.trim() || 'Cliente nao informado'
 }
 
-const getEmployeeName = (employee?: EmployeeResource): string => {
+const getEmployeeName = (employee?: EmployeeResource | null): string => {
   return employee?.person?.name?.trim() || 'Responsavel nao informado'
 }
 
@@ -273,6 +224,9 @@ const mapServiceItemResource = (item: OrderServiceItemResource): OrderLineItemFo
   return {
     id: normalizeId(serviceId),
     quantity: Math.max(1, Number(item.quantity ?? 1)),
+    name: item.name ?? item.service?.name ?? '',
+    description: item.description ?? item.service?.description ?? undefined,
+    duration_minutes: item.duration_minutes ?? item.service?.duration_minutes ?? undefined,
     unit_price: Math.max(0, Number(item.unit_price ?? item.service?.price ?? 0)),
   }
 }
@@ -287,6 +241,9 @@ const mapProductItemResource = (item: OrderProductItemResource): OrderLineItemFo
   return {
     id: normalizeId(productId),
     quantity: Math.max(1, Number(item.quantity ?? 1)),
+    name: item.name ?? item.product?.name ?? '',
+    description: item.description ?? item.product?.description ?? undefined,
+    stock: item.stock ?? item.product?.stock ?? undefined,
     unit_price: Math.max(0, Number(item.unit_price ?? item.product?.amount ?? 0)),
   }
 }
@@ -319,10 +276,10 @@ const mapOrderToForm = (order: OrderServiceResource): OrderFormState => ({
   employee_id: order.employee?.id,
   services: order.service_items?.length
     ? order.service_items.map(mapServiceItemResource).filter((item): item is OrderLineItemForm => item !== null)
-    : (order.services ?? []).map((service) => createLineItem(service.id, Number(service.price ?? 0))),
+    : [],
   products: order.product_items?.length
     ? order.product_items.map(mapProductItemResource).filter((item): item is OrderLineItemForm => item !== null)
-    : (order.products ?? []).map((product) => createLineItem(product.id, Number(product.amount ?? 0))),
+    : [],
   payments: order.payments?.length
     ? order.payments.map(mapPaymentResource).filter((item): item is OrderPaymentForm => item !== null)
     : [],
@@ -476,17 +433,16 @@ const filteredAvailableProducts = computed(() => {
 
 const selectedServiceItems = computed<OrderLineItemView[]>(() => {
   return orderForm.value.services.map((item) => {
-    const resource = services.value.find((service) => normalizeId(service.id) === item.id)
     const subtotal = item.quantity * item.unit_price
 
     return {
       id: item.id,
-      name: resource?.name ?? `Servico ${item.id}`,
-      description: resource?.description,
+      name: item?.name ?? `Servico ${item.name || item.id}`,
+      description: item?.description ?? '',
       quantity: item.quantity,
       unit_price: item.unit_price,
       subtotal,
-      meta: resource?.duration_minutes ? `${resource.duration_minutes} min` : undefined,
+      meta: item?.duration_minutes ? `${item.duration_minutes} min` : undefined,
     }
   })
 })
@@ -936,28 +892,29 @@ const getOrderServiceLineItems = (order: OrderServiceResource): OrderLineItemVie
   if (order.service_items?.length) {
     return order.service_items.map((item) => {
       const quantity = Math.max(1, Number(item.quantity ?? 1))
-      const unitPrice = Math.max(0, Number(item.unit_price ?? item.service?.price ?? 0))
+      const unitPrice = Math.max(0, Number(item.unit_price ?? item.service?.price ?? item.value ?? 0))
       const subtotal = Number(item.subtotal ?? quantity * unitPrice)
+      const durationMinutes = item.duration_minutes ?? item.service?.duration_minutes ?? undefined
 
       return {
         id: normalizeId(item.id ?? item.service_id ?? item.service?.id),
-        name: item.service?.name ?? `Servico ${item.service_id ?? item.id ?? ''}`,
-        description: item.service?.description,
+        name: item.name ?? item.service?.name ?? `Servico ${item.service_id ?? item.id ?? ''}`,
+        description: item.description ?? item.service?.description ?? undefined,
         quantity,
         unit_price: unitPrice,
         subtotal,
-        meta: item.service?.duration_minutes ? `${item.service.duration_minutes} min` : undefined,
+        meta: durationMinutes ? `${durationMinutes} min` : undefined,
       }
     })
   }
 
-  return (order.services ?? []).map((service) => ({
-    id: normalizeId(service.id),
-    name: service.name ?? `Servico ${service.id}`,
-    description: service.description,
-    quantity: 1,
-    unit_price: Number(service.price ?? 0),
-    subtotal: Number(service.price ?? 0),
+  return (order.service_items ?? []).map((service) => ({
+    id: normalizeId(service.id ?? service.service_id),
+    name: service.name ?? `Servico ${service.service_id ?? service.id ?? ''}`,
+    description: service.description ?? undefined,
+    quantity: service.quantity ?? 1,
+    unit_price: Number(service.unit_price ?? service.value ?? 0),
+    subtotal: Number(service.subtotal ?? 0),
     meta: service.duration_minutes ? `${service.duration_minutes} min` : undefined,
   }))
 }
@@ -966,29 +923,30 @@ const getOrderProductLineItems = (order: OrderServiceResource): OrderLineItemVie
   if (order.product_items?.length) {
     return order.product_items.map((item) => {
       const quantity = Math.max(1, Number(item.quantity ?? 1))
-      const unitPrice = Math.max(0, Number(item.unit_price ?? item.product?.amount ?? 0))
+      const unitPrice = Math.max(0, Number(item.unit_price ?? item.product?.amount ?? item.value ?? item.amount ?? 0))
       const subtotal = Number(item.subtotal ?? quantity * unitPrice)
+      const stock = item.stock ?? item.product?.stock ?? undefined
 
       return {
         id: normalizeId(item.id ?? item.product_id ?? item.product?.id),
-        name: item.product?.name ?? `Produto ${item.product_id ?? item.id ?? ''}`,
-        description: item.product?.description,
+        name: item.name ?? item.product?.name ?? `Produto ${item.product_id ?? item.id ?? ''}`,
+        description: item.description ?? item.product?.description ?? undefined,
         quantity,
         unit_price: unitPrice,
         subtotal,
-        meta: item.product ? `Estoque: ${item.product.stock}` : undefined,
+        meta: stock !== undefined && stock !== null ? `Estoque: ${stock}` : undefined,
       }
     })
   }
 
-  return (order.products ?? []).map((product) => ({
-    id: normalizeId(product.id),
-    name: product.name ?? `Produto ${product.id}`,
-    description: product.description,
-    quantity: 1,
-    unit_price: Number(product.amount ?? 0),
-    subtotal: Number(product.amount ?? 0),
-    meta: `Estoque: ${product.stock}`,
+  return (order.product_items ?? []).map((product) => ({
+    id: normalizeId(product.id ?? product.product_id),
+    name: product.name ?? `Produto ${product.product_id ?? product.id ?? ''}`,
+    description: product.description ?? undefined,
+    quantity: product.quantity ?? 1,
+    unit_price: Number(product.unit_price ?? product.value ?? product.amount ?? 0),
+    subtotal: Number(product.subtotal ?? 0),
+    meta: product.stock !== undefined && product.stock !== null ? `Estoque: ${product.stock}` : undefined,
   }))
 }
 
@@ -2058,7 +2016,7 @@ const sanitizePayload = (): OrderServicePayload => {
 
 const validateForm = (): string | null => {
   if (!orderForm.value.customer_id) {
-    return 'Selecione um cliente para a ordem de servico.'
+    return 'Selecione um cliente para a ordem de serviço.'
   }
 
   if (!orderForm.value.opening_date) {
@@ -2066,12 +2024,12 @@ const validateForm = (): string | null => {
   }
 
   if (!orderForm.value.services.length && !orderForm.value.products.length) {
-    return 'Adicione pelo menos um servico ou produto.'
+    return 'Adicione pelo menos um serviço ou produto.'
   }
 
   const invalidService = orderForm.value.services.some((item) => item.quantity <= 0 || item.unit_price < 0)
   if (invalidService) {
-    return 'Revise quantidade e valor dos servicos selecionados.'
+    return 'Revise quantidade e valor dos serviços selecionados.'
   }
 
   const invalidProduct = orderForm.value.products.some((item) => item.quantity <= 0 || item.unit_price < 0)
@@ -2332,8 +2290,8 @@ onBeforeUnmount(() => {
           </div>
 
           <div class="selection-summary">
-            <span>{{ order.services.length }} servico(s)</span>
-            <span>{{ order.products.length }} produto(s)</span>
+            <span>{{ order.service_items.length }} servico(s)</span>
+            <span>{{ order.product_items.length }} produto(s)</span>
           </div>
 
           <div class="order-card-toolbar" @click.stop>
@@ -2583,7 +2541,7 @@ onBeforeUnmount(() => {
 
                   <div class="selected-section">
                     <div class="selected-header">
-                      <span class="meta-label">Servicos selecionados</span>
+                      <span class="meta-label">Serviços selecionados</span>
                       <strong>{{ selectedServiceItems.length }}</strong>
                     </div>
 
@@ -2592,7 +2550,7 @@ onBeforeUnmount(() => {
                         <div class="line-item-main">
                           <div>
                             <strong>{{ item.name }}</strong>
-                            <p>{{ item.description || 'Sem descricao cadastrada.' }}</p>
+                            <p>{{ item.description || 'Sem descrição cadastrada.' }}</p>
                             <small>{{ item.meta || 'Sem detalhes adicionais' }}</small>
                           </div>
                           <button type="button" class="remove-button" @click="removeItem('service', item.id)">
@@ -3064,7 +3022,7 @@ onBeforeUnmount(() => {
                           <strong>{{ formatCurrencyBRL(item.subtotal) }}</strong>
                         </li>
                       </ul>
-                      <p v-else class="muted">Nenhum servico selecionado.</p>
+                      <p v-else class="muted">Nenhum serviço selecionado.</p>
                     </div>
 
                     <div>

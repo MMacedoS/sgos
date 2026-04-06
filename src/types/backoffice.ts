@@ -143,12 +143,12 @@ export interface OrderPaymentInstallmentResource {
 export interface OrderServiceResource {
   id: string
   number: string
-  customer?: CustomerResource
-  employee?: EmployeeResource
-  services: ServiceResource[]
-  products: ProductResource[]
-  service_items?: OrderServiceItemResource[]
-  product_items?: OrderProductItemResource[]
+  customer?: CustomerResource | null
+  employee?: EmployeeResource | null
+  service_ids?: Array<string | number>
+  product_ids?: Array<string | number>
+  service_items: OrderServiceItemResource[]
+  product_items: OrderProductItemResource[]
   payments?: OrderPaymentResource[]
   total_value: number
   amount?: number
@@ -157,9 +157,9 @@ export interface OrderServiceResource {
   amount_paid?: number
   amount_due?: number
   opening_date: string
-  closing_date?: string
+  closing_date?: string | null
   status: OrderServiceStatus
-  note?: string
+  note?: string | null
   created_at: string
   updated_at: string
 }
@@ -173,7 +173,12 @@ export interface OrderServiceResponse<T> {
 export interface OrderServiceItemResource {
   id?: string | number
   service_id?: string | number
+  service_uuid?: string
   quantity: number
+  name?: string | null
+  description?: string | null
+  duration_minutes?: number | null
+  value?: number
   unit_price: number
   subtotal?: number
   service?: ServiceResource
@@ -182,9 +187,15 @@ export interface OrderServiceItemResource {
 export interface OrderProductItemResource {
   id?: string | number
   product_id?: string | number
+  product_uuid?: string
   quantity: number
   unit_price: number
+  value?: number
+  amount?: number
+  description?: string | null
+  name?: string | null
   subtotal?: number
+  stock?: number | null
   product?: ProductResource
 }
 
@@ -355,4 +366,64 @@ export interface CashMovementPayload {
   descricao?: string
   occurred_at?: string
   data?: string
+}
+
+export interface OrderLineItemForm {
+  id: string
+  quantity: number
+  name: string
+  unit_price: number
+  description?: string
+  duration_minutes?: number
+  stock?: number
+}
+
+export interface OrderPaymentForm {
+  id: string
+  method: OrderPaymentMethod
+  amount: number
+  installments: number
+  isPersisted: boolean
+  status?: string
+  payment_date?: string | null
+  installment_items?: OrderPaymentInstallmentResource[]
+  note?: string
+}
+
+export interface OrderFormState {
+  customer_id?: string | number
+  employee_id?: string | number
+  services: OrderLineItemForm[]
+  products: OrderLineItemForm[]
+  payments: OrderPaymentForm[]
+  discount_percentage: number
+  opening_date: string
+  closing_date?: string
+  note?: string
+}
+
+export interface OrderLineItemView {
+  id: string
+  name: string
+  description?: string
+  quantity: number
+  unit_price: number
+  subtotal: number
+  meta?: string
+}
+
+export interface OrderStatusOption {
+  value: OrderServiceStatus
+  label: string
+  badgeLabel: string
+  helper: string
+  icon: string
+  badgeClass: string
+  cardClass: string
+  surfaceClass: string
+}
+
+export interface PaymentMethodOption {
+  value: OrderPaymentMethod
+  label: string
 }

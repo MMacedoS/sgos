@@ -30,6 +30,7 @@ import { formatCurrencyBRL } from '@/utils'
 import Collapsible from '@/components/ui/collapsible/Collapsible.vue'
 import CollapsibleTrigger from '@/components/ui/collapsible/CollapsibleTrigger.vue'
 import CollapsibleContent from '@/components/ui/collapsible/CollapsibleContent.vue'
+import GlobalLoadingOverlay from '@/components/ui/loading/GlobalLoadingOverlay.vue'
 
 const ORDERS_PER_PAGE = 5
 const MOBILE_ORDERS_PER_PAGE = 1
@@ -364,7 +365,7 @@ const productSelectionSearch = ref('')
 const serviceSelectionSearch = ref('')
 const orderForm = ref<OrderFormState>(emptyOrderForm())
 const selectedPaymentIds = ref<string[]>([])
-const expandedPaymentIds = ref<string[]>([])
+const paymentExpansionState = ref<Record<string, boolean>>({})
 const removalConfirmation = ref<RemovalConfirmationState>({
   visible: false,
   target: null,
@@ -374,6 +375,80 @@ const isEditingOrder = computed(() => editingOrderId.value !== null)
 const hasSelectedPersistedPayments = computed(() => selectedPaymentIds.value.length > 0)
 const persistedPaymentsCount = computed(() => orderForm.value.payments.filter((payment) => payment.isPersisted).length)
 const newPaymentsCount = computed(() => orderForm.value.payments.filter((payment) => !payment.isPersisted).length)
+
+const applyOrderFormState = (nextState: OrderFormState, options?: { preserveExpandedPayments?: boolean }): void => {
+  const preserveExpandedPayments = options?.preserveExpandedPayments ?? false
+  const previousExpansionState = { ...paymentExpansionState.value }
+
+  orderForm.value = nextState
+
+  if (!preserveExpandedPayments) {
+    paymentExpansionState.value = {}
+    return
+  }
+
+  const nextExpansionState: Record<string, boolean> = {}
+
+  for (const payment of nextState.payments) {
+    if (previousExpansionState[payment.id]) {
+      nextExpansionState[payment.id] = true
+    }
+  }
+
+  paymentExpansionState.value = nextExpansionState
+}
+
+const setPaymentExpanded = (paymentId: string, expanded: boolean): void => {
+  const nextState = { ...paymentExpansionState.value }
+
+  if (expanded) {
+    nextState[paymentId] = true
+  } else {
+    delete nextState[paymentId]
+  }
+
+  paymentExpansionState.value = nextState
+}
+
+const globalLoadingState = computed(() => {
+  if (submitPaymentsLoading.value) {
+    return {
+      visible: true,
+      title: 'Atualizando recebimentos',
+      description: 'Aguarde enquanto salvamos os pagamentos e as parcelas da ordem.',
+    }
+  }
+
+  if (submitOrderLoading.value) {
+    return {
+      visible: true,
+      title: isEditingOrder.value ? 'Salvando ordem de servico' : 'Cadastrando ordem de servico',
+      description: 'Os dados estao sendo enviados para o sistema.',
+    }
+  }
+
+  if (statusUpdateOrderId.value !== null) {
+    return {
+      visible: true,
+      title: 'Atualizando status da ordem',
+      description: 'Estamos sincronizando o novo status com o servidor.',
+    }
+  }
+
+  if (isPrintingOrderId.value !== null) {
+    return {
+      visible: true,
+      title: 'Preparando impressao',
+      description: 'Estamos montando o documento da ordem para impressao.',
+    }
+  }
+
+  return {
+    visible: false,
+    title: '',
+    description: '',
+  }
+})
 
 const selectedServiceIds = computed(() => new Set(orderForm.value.services.map((item) => item.id)))
 const selectedProductIds = computed(() => new Set(orderForm.value.products.map((item) => item.id)))
@@ -715,11 +790,10 @@ const loadDependencies = async (): Promise<void> => {
 const resetOrderModalState = (): void => {
   editingOrderId.value = null
   selectedPaymentIds.value = []
-  expandedPaymentIds.value = []
   orderMessage.value = ''
   serviceSelectionSearch.value = ''
   productSelectionSearch.value = ''
-  orderForm.value = emptyOrderForm()
+  applyOrderFormState(emptyOrderForm())
 }
 
 const updateOrderStatus = async (order: OrderServiceResource, status: OrderServiceStatus): Promise<void> => {
@@ -821,20 +895,15 @@ const updateItemPrice = (type: OrderItemType, itemId: string, value: number): vo
 const addPayment = (): void => {
   const payment = createPaymentItem()
   orderForm.value.payments = [...orderForm.value.payments, payment]
-  expandedPaymentIds.value = [...new Set([...expandedPaymentIds.value, payment.id])]
+  setPaymentExpanded(payment.id, true)
 }
 
 const isPaymentExpanded = (paymentId: string): boolean => {
-  return expandedPaymentIds.value.includes(paymentId)
+  return Boolean(paymentExpansionState.value[paymentId])
 }
 
 const togglePaymentExpanded = (paymentId: string): void => {
-  if (isPaymentExpanded(paymentId)) {
-    expandedPaymentIds.value = expandedPaymentIds.value.filter((id) => id !== paymentId)
-    return
-  }
-
-  expandedPaymentIds.value = [...expandedPaymentIds.value, paymentId]
+  setPaymentExpanded(paymentId, !isPaymentExpanded(paymentId))
 }
 
 const isPaidStatus = (status?: string | null): boolean => {
@@ -1450,9 +1519,8 @@ const reloadEditingOrder = async (): Promise<void> => {
   }
 
   const detailedOrder = await orderServicesService.show(editingOrderId.value)
-  orderForm.value = mapOrderToForm(detailedOrder)
+  applyOrderFormState(mapOrderToForm(detailedOrder), { preserveExpandedPayments: true })
   selectedPaymentIds.value = []
-  expandedPaymentIds.value = []
 }
 
 const openRemovalConfirmation = (state: Omit<RemovalConfirmationState, 'visible'>): void => {
@@ -1545,7 +1613,7 @@ const removePayment = async (paymentId: string): Promise<void> => {
   if (!targetPayment.isPersisted) {
     orderForm.value.payments = orderForm.value.payments.filter((payment) => payment.id !== paymentId)
     selectedPaymentIds.value = selectedPaymentIds.value.filter((id) => id !== paymentId)
-    expandedPaymentIds.value = expandedPaymentIds.value.filter((id) => id !== paymentId)
+    setPaymentExpanded(paymentId, false)
     return
   }
 
@@ -2087,15 +2155,16 @@ const openOrderModal = async (): Promise<void> => {
 const openEditOrderModal = async (order: OrderServiceResource): Promise<void> => {
   editingOrderId.value = order.id
   selectedPaymentIds.value = []
+  paymentExpansionState.value = {}
   orderMessage.value = ''
   serviceSelectionSearch.value = ''
   productSelectionSearch.value = ''
 
   try {
     const detailedOrder = await orderServicesService.show(order.id)
-    orderForm.value = mapOrderToForm(detailedOrder)
+    applyOrderFormState(mapOrderToForm(detailedOrder))
   } catch {
-    orderForm.value = mapOrderToForm(order)
+    applyOrderFormState(mapOrderToForm(order))
   }
 
   showOrderModal.value = true
@@ -2147,6 +2216,12 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
+  <GlobalLoadingOverlay
+    :visible="globalLoadingState.visible"
+    :title="globalLoadingState.title"
+    :description="globalLoadingState.description"
+  />
+
   <section class="content-section">
     <article class="panel">
       <header class="section-actions">
@@ -2638,14 +2713,14 @@ onBeforeUnmount(() => {
                 </article>
               </div>
 
-              <aside class="space-y-5">
+              <aside class="order-side-panel space-y-5">
                 <article class="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm md:p-5">
                   <div class="mb-4 flex items-center gap-3">
                     <span class="text-xs font-semibold uppercase tracking-[0.18em] text-indigo-600">Resumo Financeiro</span>
                     <div class="h-px flex-1 bg-slate-200"></div>
                   </div>
 
-                  <div class="summary-stack">
+                  <div class="summary-stack financial-summary-grid">
                     <div>
                       <span class="meta-label">Servicos selecionados</span>
                       <strong>{{ selectedServiceItems.length }}</strong>
@@ -2690,12 +2765,12 @@ onBeforeUnmount(() => {
                     <div class="h-px flex-1 bg-slate-200"></div>
                   </div>
 
-                  <div class="space-y-3">
+                  <div class="payment-panel-content">
                     <p v-if="!isEditingOrder" class="text-xs text-slate-500">
                       Salve a ordem primeiro para inserir recebimentos.
                     </p>
 
-                    <div class="grid grid-cols-2 gap-2 md:grid-cols-4">
+                    <div class="payment-stat-grid">
                       <div class="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
                         <span class="text-[11px] uppercase tracking-[0.06em] text-slate-500">Pagamentos</span>
                         <p class="text-sm font-semibold text-slate-800">{{ orderForm.payments.length }}</p>
@@ -2714,7 +2789,7 @@ onBeforeUnmount(() => {
                       </div>
                     </div>
 
-                    <div class="grid grid-cols-1 gap-2 md:grid-cols-3">
+                    <div class="payment-status-grid">
                       <div class="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2">
                         <span class="text-[11px] uppercase tracking-[0.06em] text-amber-700">Pendentes</span>
                         <p class="text-sm font-semibold text-amber-800">{{ paymentStatusSummary.pendente }}</p>
@@ -2734,13 +2809,13 @@ onBeforeUnmount(() => {
                         v-for="payment in sortedPayments"
                         :key="payment.id"
                         :class="[
-                          'rounded-xl border bg-slate-50 p-3 shadow-sm transition',
+                          'payment-card-shell rounded-xl border bg-slate-50 p-3 shadow-sm transition',
                           getPaymentStatusTone(payment.status),
                         ]"
                       >
                         <button
                           type="button"
-                          class="mb-2 flex w-full items-center justify-between rounded-lg border border-slate-200 bg-white px-3 py-2 text-left"
+                          class="payment-card-toggle mb-2 flex w-full items-center justify-between rounded-lg border border-slate-200 bg-white px-3 py-2 text-left"
                           @click="togglePaymentExpanded(payment.id)"
                         >
                           <div class="flex items-center gap-2">
@@ -2758,7 +2833,7 @@ onBeforeUnmount(() => {
                           </div>
                         </button>
 
-                        <div v-if="isPaymentExpanded(payment.id)">
+                        <div v-if="isPaymentExpanded(payment.id)" class="payment-card-body">
                         <label v-if="payment.isPersisted" class="mb-2 flex items-center gap-2 text-xs font-medium text-slate-600">
                           <input
                             type="checkbox"
@@ -2842,7 +2917,7 @@ onBeforeUnmount(() => {
                           </button>
                         </div>
 
-                        <div class="mt-3 grid grid-cols-1 gap-2 md:grid-cols-2">
+                        <div class="payment-meta-grid mt-3">
                           <div class="rounded-lg border border-slate-200 bg-white px-3 py-2">
                             <span class="text-xs font-medium text-slate-600">Status</span>
                             <p class="mt-1 text-sm font-semibold text-slate-800">{{ payment.status || 'Nao informado' }}</p>
@@ -2932,7 +3007,7 @@ onBeforeUnmount(() => {
                     </div>
 
                     <p v-else class="muted">Nenhum pagamento adicionado.</p>
-                    <div class="grid grid-cols-1 gap-2 lg:grid-cols-3">
+                    <div class="payment-actions-grid">
                       <button
                         type="button"
                         class="w-full rounded-xl border border-dashed border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition hover:border-indigo-300 hover:text-indigo-600"
@@ -3623,6 +3698,73 @@ onBeforeUnmount(() => {
   gap: 1rem;
 }
 
+.order-side-panel {
+  display: grid;
+  gap: 1rem;
+  align-content: start;
+}
+
+.financial-summary-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.75rem;
+}
+
+.financial-summary-grid > div {
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  padding: 0.8rem;
+  background: linear-gradient(180deg, #ffffff, #f8fafc);
+}
+
+.payment-panel-content {
+  display: grid;
+  gap: 0.85rem;
+}
+
+.payment-stat-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.6rem;
+}
+
+.payment-status-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.6rem;
+}
+
+.payment-card-shell {
+  backdrop-filter: blur(8px);
+}
+
+.payment-card-toggle {
+  gap: 0.75rem;
+  box-shadow: 0 8px 18px rgba(15, 23, 42, 0.04);
+}
+
+.payment-card-toggle > div:first-child {
+  flex-wrap: wrap;
+}
+
+.payment-card-body {
+  display: grid;
+  gap: 0.75rem;
+  border-top: 1px solid rgba(148, 163, 184, 0.22);
+  padding-top: 0.75rem;
+}
+
+.payment-meta-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.5rem;
+}
+
+.payment-actions-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.6rem;
+}
+
 .preview-list {
   list-style: none;
   padding: 0;
@@ -3713,8 +3855,19 @@ onBeforeUnmount(() => {
 }
 
 @media (max-width: 900px) {
-  .line-item-fields {
+  .line-item-fields,
+  .financial-summary-grid,
+  .payment-meta-grid,
+  .payment-status-grid,
+  .payment-actions-grid {
     grid-template-columns: 1fr;
+  }
+}
+
+@media (min-width: 1280px) {
+  .order-side-panel {
+    position: sticky;
+    top: 1rem;
   }
 }
 
@@ -3736,8 +3889,23 @@ onBeforeUnmount(() => {
   .picker-grid,
   .order-meta-grid,
   .filter-bar-orders,
-  .status-actions {
+  .status-actions,
+  .payment-stat-grid,
+  .payment-status-grid,
+  .payment-actions-grid,
+  .payment-meta-grid,
+  .financial-summary-grid {
     grid-template-columns: 1fr;
+  }
+
+  .payment-card-toggle {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .payment-card-toggle > div:last-child {
+    width: 100%;
+    justify-content: space-between;
   }
 
   .picker-search {

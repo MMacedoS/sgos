@@ -10,6 +10,7 @@ import type {
   CashResource,
 } from '@/types/backoffice'
 import { formatCurrencyBRL } from '@/utils'
+import GlobalLoadingOverlay from '@/components/ui/loading/GlobalLoadingOverlay.vue'
 
 type CashStatusFilter = 'todos' | 'aberto' | 'fechado'
 type CashActionType = 'abrir' | 'fechar'
@@ -353,6 +354,152 @@ const movementBalance = computed(() => {
 const isEditingCash = computed(() => editingCashId.value !== null)
 const isEditingMovement = computed(() => editingMovementId.value !== null)
 
+const resolveNextCashAction = (cash: CashResource): CashActionType => {
+  if (resolveCashStatus(cash) === 'aberto') {
+    return 'fechar'
+  }
+
+  return 'abrir'
+}
+
+const resolveNextCashActionLabel = (cash: CashResource, detailed = false): string => {
+  const nextAction = resolveNextCashAction(cash)
+
+  if (detailed && nextAction === 'fechar') {
+    return 'Fechar caixa'
+  }
+
+  if (detailed) {
+    return 'Abrir caixa'
+  }
+
+  if (nextAction === 'fechar') {
+    return 'Fechar'
+  }
+
+  return 'Abrir'
+}
+
+const cashModalTitle = computed(() => {
+  if (isEditingCash.value) {
+    return 'Editar caixa'
+  }
+
+  return 'Novo caixa'
+})
+
+const cashModalDescription = computed(() => {
+  if (isEditingCash.value) {
+    return 'Atualize os dados principais do caixa de forma simples e rápida.'
+  }
+
+  return 'Informe os dados principais para cadastro do caixa.'
+})
+
+const cashSubmitButtonLabel = computed(() => {
+  if (isSubmittingCash.value) {
+    return 'Salvando...'
+  }
+
+  if (isEditingCash.value) {
+    return 'Atualizar caixa'
+  }
+
+  return 'Cadastrar caixa'
+})
+
+const movementModalTitle = computed(() => {
+  if (isEditingMovement.value) {
+    return 'Editar movimentação'
+  }
+
+  return 'Nova movimentação'
+})
+
+const movementModalDescription = computed(() => {
+  if (isEditingMovement.value) {
+    return 'Ajuste os dados da movimentação com foco em clareza e rapidez.'
+  }
+
+  return 'Registre entradas, saídas, sangrias ou ajustes do caixa.'
+})
+
+const movementSubmitButtonLabel = computed(() => {
+  if (isSubmittingMovement.value) {
+    return 'Salvando...'
+  }
+
+  if (isEditingMovement.value) {
+    return 'Atualizar movimentação'
+  }
+
+  return 'Registrar movimentação'
+})
+
+const cashActionTitle = computed(() => {
+  if (cashActionType.value === 'abrir') {
+    return 'Abrir caixa'
+  }
+
+  return 'Fechar caixa'
+})
+
+const cashActionAmountLabel = computed(() => {
+  if (cashActionType.value === 'abrir') {
+    return 'Saldo de abertura'
+  }
+
+  return 'Saldo de fechamento'
+})
+
+const cashActionButtonLabel = computed(() => {
+  if (isSubmittingAction.value) {
+    return 'Processando...'
+  }
+
+  return cashActionTitle.value
+})
+
+const cashLoadingState = computed(() => {
+  if (isSubmittingCash.value) {
+    return {
+      visible: true,
+      title: isEditingCash.value ? 'Atualizando caixa' : 'Cadastrando caixa',
+      description: 'Estamos salvando os dados principais do caixa.',
+    }
+  }
+
+  if (isSubmittingMovement.value) {
+    return {
+      visible: true,
+      title: isEditingMovement.value ? 'Atualizando movimentação' : 'Registrando movimentação',
+      description: 'A movimentação está sendo enviada para o caixa selecionado.',
+    }
+  }
+
+  if (isSubmittingAction.value) {
+    return {
+      visible: true,
+      title: cashActionTitle.value,
+      description: 'Estamos atualizando o status e o saldo do caixa.',
+    }
+  }
+
+  if (isLoadingData.value) {
+    return {
+      visible: true,
+      title: 'Carregando caixas',
+      description: 'Buscando dados de caixas e movimentações.',
+    }
+  }
+
+  return {
+    visible: false,
+    title: '',
+    description: '',
+  }
+})
+
 watch(filteredCashes, (items) => {
   if (!items.length) {
     selectedCashId.value = ''
@@ -406,6 +553,16 @@ const resetMovementForm = (): void => {
 const resetActionForm = (): void => {
   cashActionType.value = null
   cashActionForm.value = emptyCashActionForm()
+}
+
+const closeCashModal = (): void => {
+  showCashModal.value = false
+  resetCashForm()
+}
+
+const closeMovementModal = (): void => {
+  showMovementModal.value = false
+  resetMovementForm()
 }
 
 const loadData = async (): Promise<void> => {
@@ -621,6 +778,12 @@ onMounted(async () => {
 </script>
 
 <template>
+  <GlobalLoadingOverlay
+    :visible="cashLoadingState.visible"
+    :title="cashLoadingState.title"
+    :description="cashLoadingState.description"
+  />
+
   <section class="cash-section">
     <header class="section-header">
       <div>
@@ -742,9 +905,9 @@ onMounted(async () => {
               <button
                 type="button"
                 class="ghost-btn"
-                @click.stop="openCashActionModal(resolveCashStatus(cash) === 'aberto' ? 'fechar' : 'abrir', cash)"
+                @click.stop="openCashActionModal(resolveNextCashAction(cash), cash)"
               >
-                {{ resolveCashStatus(cash) === 'aberto' ? 'Fechar' : 'Abrir' }}
+                {{ resolveNextCashActionLabel(cash) }}
               </button>
               <button type="button" class="danger-btn" @click.stop="removeCash(cash)">Excluir</button>
             </div>
@@ -765,9 +928,9 @@ onMounted(async () => {
               <button
                 type="button"
                 class="primary-btn"
-                @click="openCashActionModal(resolveCashStatus(selectedCash) === 'aberto' ? 'fechar' : 'abrir', selectedCash)"
+                @click="openCashActionModal(resolveNextCashAction(selectedCash), selectedCash)"
               >
-                {{ resolveCashStatus(selectedCash) === 'aberto' ? 'Fechar caixa' : 'Abrir caixa' }}
+                {{ resolveNextCashActionLabel(selectedCash, true) }}
               </button>
             </div>
           </div>
@@ -842,16 +1005,16 @@ onMounted(async () => {
       </section>
     </div>
 
-    <div v-if="showCashModal" class="modal-overlay" @click.self="showCashModal = false">
-      <div class="modal-card">
+    <div v-if="showCashModal" class="modal-overlay" @click.self="closeCashModal">
+      <div class="modal-card cash-modal-card">
         <div class="panel-header">
           <div>
-            <h3>{{ isEditingCash ? 'Editar caixa' : 'Novo caixa' }}</h3>
-            <p>Informe os dados principais para cadastro do caixa.</p>
+            <h3>{{ cashModalTitle }}</h3>
+            <p>{{ cashModalDescription }}</p>
           </div>
         </div>
 
-        <form class="form-grid" @submit.prevent="submitCashForm">
+        <form class="form-grid cash-form-grid" @submit.prevent="submitCashForm">
           <label class="field full-width">
             <span>Nome</span>
             <input v-model="cashForm.name" type="text" required placeholder="Ex.: Caixa principal" />
@@ -864,29 +1027,29 @@ onMounted(async () => {
 
           <label class="field">
             <span>Saldo inicial</span>
-            <input v-model.number="cashForm.openingBalance" type="number" min="0" step="0.01" required />
+            <input v-model.number="cashForm.openingBalance" type="number" min="0" step="0.01" inputmode="decimal" required />
           </label>
 
           <div class="modal-actions full-width">
-            <button type="button" class="ghost-btn" @click="showCashModal = false">Cancelar</button>
+            <button type="button" class="ghost-btn" @click="closeCashModal">Cancelar</button>
             <button type="submit" class="primary-btn" :disabled="isSubmittingCash">
-              {{ isSubmittingCash ? 'Salvando...' : isEditingCash ? 'Atualizar caixa' : 'Cadastrar caixa' }}
+              {{ cashSubmitButtonLabel }}
             </button>
           </div>
         </form>
       </div>
     </div>
 
-    <div v-if="showMovementModal" class="modal-overlay" @click.self="showMovementModal = false">
-      <div class="modal-card">
+    <div v-if="showMovementModal" class="modal-overlay" @click.self="closeMovementModal">
+      <div class="modal-card cash-modal-card">
         <div class="panel-header">
           <div>
-            <h3>{{ isEditingMovement ? 'Editar movimentação' : 'Nova movimentação' }}</h3>
-            <p>Registre entradas, saídas, sangrias ou ajustes do caixa.</p>
+            <h3>{{ movementModalTitle }}</h3>
+            <p>{{ movementModalDescription }}</p>
           </div>
         </div>
 
-        <form class="form-grid" @submit.prevent="submitMovementForm">
+        <form class="form-grid cash-form-grid" @submit.prevent="submitMovementForm">
           <label class="field">
             <span>Caixa</span>
             <select v-model="movementForm.cashId" required>
@@ -908,7 +1071,7 @@ onMounted(async () => {
 
           <label class="field">
             <span>Valor</span>
-            <input v-model.number="movementForm.amount" type="number" min="0" step="0.01" required />
+            <input v-model.number="movementForm.amount" type="number" min="0" step="0.01" inputmode="decimal" required />
           </label>
 
           <label class="field">
@@ -927,9 +1090,9 @@ onMounted(async () => {
           </label>
 
           <div class="modal-actions full-width">
-            <button type="button" class="ghost-btn" @click="showMovementModal = false">Cancelar</button>
+            <button type="button" class="ghost-btn" @click="closeMovementModal">Cancelar</button>
             <button type="submit" class="primary-btn" :disabled="isSubmittingMovement">
-              {{ isSubmittingMovement ? 'Salvando...' : isEditingMovement ? 'Atualizar movimentação' : 'Registrar movimentação' }}
+              {{ movementSubmitButtonLabel }}
             </button>
           </div>
         </form>
@@ -937,18 +1100,18 @@ onMounted(async () => {
     </div>
 
     <div v-if="cashActionType" class="modal-overlay" @click.self="resetActionForm()">
-      <div class="modal-card small-modal">
+      <div class="modal-card small-modal cash-modal-card">
         <div class="panel-header">
           <div>
-            <h3>{{ cashActionType === 'abrir' ? 'Abrir caixa' : 'Fechar caixa' }}</h3>
+            <h3>{{ cashActionTitle }}</h3>
             <p>Informe o valor de referência e, se necessário, uma observação.</p>
           </div>
         </div>
 
-        <form class="form-grid" @submit.prevent="submitCashAction">
+        <form class="form-grid cash-form-grid" @submit.prevent="submitCashAction">
           <label class="field full-width">
-            <span>{{ cashActionType === 'abrir' ? 'Saldo de abertura' : 'Saldo de fechamento' }}</span>
-            <input v-model.number="cashActionForm.amount" type="number" min="0" step="0.01" required />
+            <span>{{ cashActionAmountLabel }}</span>
+            <input v-model.number="cashActionForm.amount" type="number" min="0" step="0.01" inputmode="decimal" required />
           </label>
 
           <label class="field full-width">
@@ -959,7 +1122,7 @@ onMounted(async () => {
           <div class="modal-actions full-width">
             <button type="button" class="ghost-btn" @click="resetActionForm()">Cancelar</button>
             <button type="submit" class="primary-btn" :disabled="isSubmittingAction">
-              {{ isSubmittingAction ? 'Processando...' : cashActionType === 'abrir' ? 'Abrir caixa' : 'Fechar caixa' }}
+              {{ cashActionButtonLabel }}
             </button>
           </div>
         </form>
@@ -970,9 +1133,9 @@ onMounted(async () => {
 
 <style scoped>
 .cash-section {
-  padding: 1.5rem;
+  padding: clamp(0.9rem, 2vw, 1.5rem);
   display: grid;
-  gap: 1.25rem;
+  gap: 1.1rem;
 }
 
 .section-header,
@@ -983,9 +1146,17 @@ onMounted(async () => {
 .modal-actions,
 .cash-card-top {
   display: flex;
+  flex-wrap: wrap;
   align-items: flex-start;
   justify-content: space-between;
   gap: 0.75rem;
+}
+
+.section-header > div:first-child,
+.panel-header > div:first-child,
+.cash-card-top > div:first-child,
+.movement-main > div:first-child {
+  min-width: 0;
 }
 
 .eyebrow {
@@ -1074,12 +1245,17 @@ onMounted(async () => {
 }
 
 .toolbar {
-  grid-template-columns: minmax(0, 1fr) 180px;
+  grid-template-columns: minmax(0, 1fr) minmax(160px, 220px);
+  align-items: end;
 }
 
 .content-grid {
-  grid-template-columns: minmax(320px, 420px) minmax(0, 1fr);
+  grid-template-columns: minmax(280px, 400px) minmax(0, 1fr);
   align-items: start;
+}
+
+.details-panel {
+  min-width: 0;
 }
 
 .panel,
@@ -1209,15 +1385,27 @@ onMounted(async () => {
 .field select,
 .field textarea {
   width: 100%;
+  min-height: 3rem;
   border: 1px solid #cbd5e1;
   border-radius: 12px;
   padding: 0.8rem 0.9rem;
   font: inherit;
   color: #0f172a;
   background: #fff;
+  transition: border-color 0.18s ease, box-shadow 0.18s ease, background-color 0.18s ease;
+}
+
+.field input:focus,
+.field select:focus,
+.field textarea:focus {
+  outline: none;
+  border-color: #6366f1;
+  box-shadow: 0 0 0 4px rgba(99, 102, 241, 0.12);
+  background: #ffffff;
 }
 
 .field textarea {
+  min-height: 7rem;
   resize: vertical;
 }
 
@@ -1269,6 +1457,7 @@ onMounted(async () => {
   position: fixed;
   inset: 0;
   background: rgba(15, 23, 42, 0.5);
+  backdrop-filter: blur(4px);
   display: grid;
   place-items: center;
   padding: 1rem;
@@ -1277,7 +1466,15 @@ onMounted(async () => {
 
 .modal-card {
   width: min(680px, 100%);
-  padding: 1.25rem;
+  max-height: min(92dvh, 840px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 1.1rem;
+}
+
+.cash-modal-card {
+  display: grid;
+  gap: 0.25rem;
 }
 
 .small-modal {
@@ -1286,11 +1483,24 @@ onMounted(async () => {
 
 .form-grid {
   grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-items: start;
   margin-top: 1rem;
 }
 
+.cash-form-grid {
+  gap: 0.9rem;
+}
+
+.modal-actions {
+  position: sticky;
+  bottom: 0;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0), #ffffff 22%);
+  padding-top: 0.85rem;
+}
+
 @media (max-width: 1024px) {
-  .content-grid {
+  .content-grid,
+  .toolbar {
     grid-template-columns: 1fr;
   }
 
@@ -1302,7 +1512,8 @@ onMounted(async () => {
 
 @media (max-width: 768px) {
   .cash-section {
-    padding: 1rem;
+    padding: 0.85rem;
+    gap: 0.9rem;
   }
 
   .section-header,
@@ -1313,6 +1524,7 @@ onMounted(async () => {
   .modal-actions,
   .cash-card-top {
     flex-direction: column;
+    align-items: stretch;
   }
 
   .toolbar,
@@ -1320,6 +1532,13 @@ onMounted(async () => {
   .cash-metrics,
   .detail-cards {
     grid-template-columns: 1fr;
+  }
+
+  .cash-card,
+  .movement-card,
+  .panel,
+  .modal-card {
+    border-radius: 16px;
   }
 
   .header-actions,
@@ -1332,5 +1551,19 @@ onMounted(async () => {
   .card-actions > button {
     width: 100%;
   }
+
+  .modal-overlay {
+    padding: 0;
+    align-items: end;
+  }
+
+  .modal-card,
+  .small-modal {
+    width: 100%;
+    max-height: 92dvh;
+    border-bottom-left-radius: 0;
+    border-bottom-right-radius: 0;
+  }
 }
+
 </style>
